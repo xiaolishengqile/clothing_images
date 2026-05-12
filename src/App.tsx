@@ -143,9 +143,14 @@ export default function App() {
       return
     }
 
-    const pending = jobs.filter((j) => j.status === 'queued' || j.status === 'error')
-    if (pending.length === 0) {
-      alert('没有待处理任务：请先上传图片，或将失败项保持为可重试状态后再运行。')
+    if (jobs.length === 0) {
+      alert('请先上传图片。')
+      return
+    }
+    /** 含已完成：不满意时可再次「开始生成」整批重跑；运行中除外 */
+    const queue = jobs.filter((j) => j.status !== 'running')
+    if (queue.length === 0) {
+      alert('当前没有可执行的任务。')
       return
     }
 
@@ -156,7 +161,13 @@ export default function App() {
 
     const runOne = async (job: Job) => {
       if (cancelRef.current) return
-      updateJob(job.id, { status: 'running', error: undefined })
+      updateJob(job.id, {
+        status: 'running',
+        error: undefined,
+        resultDataUrl: undefined,
+        rawJson: undefined,
+        completedAt: undefined,
+      })
       const ac = new AbortController()
       abortRef.current = ac
       try {
@@ -192,7 +203,6 @@ export default function App() {
       }
     }
 
-    const queue = jobs.filter((j) => j.status === 'queued' || j.status === 'error')
     /** 与待处理张数一致，最多同时 MAX_BATCH_CONCURRENCY 路 */
     const n = Math.min(MAX_BATCH_CONCURRENCY, Math.max(1, queue.length))
     let cursor = 0
@@ -399,7 +409,7 @@ export default function App() {
 
           {jobs.length === 0 ? (
             <p className="field-hint" style={{ marginTop: '1.5rem' }}>
-              上传后每张图会显示原图与生成结果；失败可修正 Token 或编码方式后再次点击「开始生成」。
+              上传后每张图会显示原图与生成结果；不满意或失败时，可改提示词或 Token 后再次点击「开始生成」重新生成（含已成功的也会整批重跑）。
             </p>
           ) : (
             <>

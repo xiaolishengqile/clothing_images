@@ -1,25 +1,44 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
-import { postImagesGenerations } from './api/imagesGenerations'
+import { postImagesGenerations, type GenerationsBody } from './api/imagesGenerations'
 import {
   ASPECT_OPTIONS,
+  buildFabricTransferPrompt,
   DEFAULT_API_BASE,
   DEFAULT_MODEL,
-  DEFAULT_PROMPT,
   MAX_BATCH_CONCURRENCY,
   SIZE_OPTIONS,
   STORAGE_KEY_ASPECT,
   STORAGE_KEY_BASE,
-  STORAGE_KEY_ENCODE,
   STORAGE_KEY_PROMPT,
   STORAGE_KEY_SIZE,
   STORAGE_KEY_TOKEN,
 } from './lib/constants'
-import { dataURLToRawBase64, readFileAsDataURL } from './lib/files'
+import { getImageFilesFromDataTransfer, readFileAsDataURL } from './lib/files'
 import './App.css'
 
 type JobStatus = 'queued' | 'running' | 'done' | 'error'
+type PasteTarget = 'fabric' | 'target'
+
+const STATUS_LABEL: Record<JobStatus, string> = {
+  queued: '等待',
+  running: '生成中',
+  done: '完成',
+  error: '失败',
+}
+
+function isEditableElement(el: Element | null): boolean {
+  if (!el) return false
+  const tag = el.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  return el instanceof HTMLElement && el.isContentEditable
+}
+
+interface FabricSource {
+  file: File
+  previewObjectUrl: string
+}
 
 interface Job {
   id: string
@@ -28,10 +47,7 @@ interface Job {
   status: JobStatus
   error?: string
   resultDataUrl?: string
-  rawJson?: unknown
-  /** 加入列表顺序，用于未完成任务排序 */
   addedSeq: number
-  /** 完成时间戳，用于「先完成的先显示」 */
   completedAt?: number
 }
 
@@ -55,17 +71,16 @@ export default function App() {
   const [promptExtra, setPromptExtra] = useState(() => localStorage.getItem(STORAGE_KEY_PROMPT) ?? '')
   const [size, setSize] = useState(() => localStorage.getItem(STORAGE_KEY_SIZE) ?? '1024x1024')
   const [aspectRatio, setAspectRatio] = useState(() => localStorage.getItem(STORAGE_KEY_ASPECT) ?? '1:1')
-  const [encodeMode, setEncodeMode] = useState<'dataurl' | 'raw'>(() =>
-    (localStorage.getItem(STORAGE_KEY_ENCODE) as 'dataurl' | 'raw') === 'raw' ? 'raw' : 'dataurl',
-  )
 
+  const [fabricSource, setFabricSource] = useState<FabricSource | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
   const addedSeqRef = useRef(0)
   const [isRunning, setIsRunning] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
-  const [logExpanded, setLogExpanded] = useState(false)
+  const [targetDragOver, setTargetDragOver] = useState(false)
+  const [pasteTarget, setPasteTarget] = useState<PasteTarget>('fabric')
 
   const cancelRef = useRef(false)
+  const pasteTargetRef = useRef<PasteTarget>('fabric')
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -84,14 +99,44 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_ASPECT, aspectRatio)
   }, [aspectRatio])
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_ENCODE, encodeMode)
-  }, [encodeMode])
+    pasteTargetRef.current = pasteTarget
+  }, [pasteTarget])
+
+  const jobStats = useMemo(() => {
+    let done = 0
+    let running = 0
+    let error = 0
+    for (const j of jobs) {
+      if (j.status === 'done') done++
+      else if (j.status === 'running') running++
+      else if (j.status === 'error') error++
+    }
+    return { done, running, error, total: jobs.length }
+  }, [jobs])
 
   const updateJob = useCallback((id: string, patch: Partial<Job>) => {
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)))
   }, [])
 
-  const addFiles = useCallback((list: FileList | File[]) => {
+  const setFabricFromFile = useCallback((file: File) => {
+    if (!/^image\//.test(file.type)) return
+    setFabricSource((prev) => {
+      if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+      return {
+        file,
+        previewObjectUrl: URL.createObjectURL(file),
+      }
+    })
+  }, [])
+
+  const clearFabricSource = useCallback(() => {
+    setFabricSource((prev) => {
+      if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+      return null
+    })
+  }, [])
+
+  const addTargetFiles = useCallback((list: FileList | File[]) => {
     const arr = Array.from(list).filter((f) => /^image\//.test(f.type))
     if (arr.length === 0) return
     setJobs((prev) => {
@@ -108,6 +153,30 @@ export default function App() {
       return next
     })
   }, [])
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent | ClipboardEvent, target: PasteTarget) => {
+      if (isRunning) return
+      const dt = e.clipboardData
+      if (!dt) return
+      const files = getImageFilesFromDataTransfer(dt)
+      if (files.length === 0) return
+      e.preventDefault()
+      if (target === 'fabric') setFabricFromFile(files[0])
+      else addTargetFiles(files)
+    },
+    [addTargetFiles, isRunning, setFabricFromFile],
+  )
+
+  useEffect(() => {
+    const onWindowPaste = (e: ClipboardEvent) => {
+      if (isRunning || isEditableElement(document.activeElement)) return
+      if ((e.target as Element | null)?.closest?.('.paste-zone')) return
+      handlePaste(e, pasteTargetRef.current)
+    }
+    window.addEventListener('paste', onWindowPaste)
+    return () => window.removeEventListener('paste', onWindowPaste)
+  }, [handlePaste, isRunning])
 
   const removeJob = useCallback((id: string) => {
     setJobs((prev) => {
@@ -131,23 +200,28 @@ export default function App() {
     abortRef.current?.abort()
   }, [])
 
+  const encodeImage = useCallback(async (file: File) => readFileAsDataURL(file), [])
+
   const runBatch = useCallback(async () => {
     const token = apiToken.trim()
     if (!token) {
-      alert('请填写 API Token（Bearer）。')
+      alert('请先填写 API 密钥（在左侧「连接设置」里）。')
       return
     }
     const base = apiBase.trim()
     if (!base) {
-      alert('请填写 API 地址。')
+      alert('请填写接口地址。')
+      return
+    }
+    if (!fabricSource) {
+      alert('请先上传「布料图」（第 1 步）。')
+      return
+    }
+    if (jobs.length === 0) {
+      alert('请至少上传一张「要换布的照片」（第 2 步）。')
       return
     }
 
-    if (jobs.length === 0) {
-      alert('请先上传图片。')
-      return
-    }
-    /** 含已完成：不满意时可再次「开始生成」整批重跑；运行中除外 */
     const queue = jobs.filter((j) => j.status !== 'running')
     if (queue.length === 0) {
       alert('当前没有可执行的任务。')
@@ -157,7 +231,16 @@ export default function App() {
     cancelRef.current = false
     setIsRunning(true)
 
-    const fullPrompt = [DEFAULT_PROMPT, promptExtra.trim()].filter(Boolean).join('\n\n')
+    const fullPrompt = [buildFabricTransferPrompt(), promptExtra.trim()].filter(Boolean).join('\n\n')
+
+    let fabricPayload: string
+    try {
+      fabricPayload = await encodeImage(fabricSource.file)
+    } catch (e) {
+      setIsRunning(false)
+      alert(e instanceof Error ? e.message : String(e))
+      return
+    }
 
     const runOne = async (job: Job) => {
       if (cancelRef.current) return
@@ -165,32 +248,26 @@ export default function App() {
         status: 'running',
         error: undefined,
         resultDataUrl: undefined,
-        rawJson: undefined,
         completedAt: undefined,
       })
       const ac = new AbortController()
       abortRef.current = ac
       try {
-        const dataUrl = await readFileAsDataURL(job.file)
-        const imagePayload =
-          encodeMode === 'raw' ? [dataURLToRawBase64(dataUrl)] : [dataUrl]
+        const targetPayload = await encodeImage(job.file)
 
-        const { imageDataUrl, rawJson } = await postImagesGenerations(
-          base,
-          token,
-          {
-            model: model.trim() || DEFAULT_MODEL,
-            prompt: fullPrompt,
-            size,
-            aspect_ratio: aspectRatio,
-            image: imagePayload,
-          },
-          ac.signal,
-        )
+        const genBody: GenerationsBody = {
+          model: model.trim() || DEFAULT_MODEL,
+          prompt: fullPrompt,
+          size,
+          aspect_ratio: aspectRatio,
+          image: [fabricPayload, targetPayload],
+        }
+
+        const { imageDataUrl } = await postImagesGenerations(base, token, genBody, ac.signal)
+
         updateJob(job.id, {
           status: 'done',
           resultDataUrl: imageDataUrl,
-          rawJson,
           completedAt: Date.now(),
         })
       } catch (e) {
@@ -203,7 +280,6 @@ export default function App() {
       }
     }
 
-    /** 与待处理张数一致，最多同时 MAX_BATCH_CONCURRENCY 路 */
     const n = Math.min(MAX_BATCH_CONCURRENCY, Math.max(1, queue.length))
     let cursor = 0
 
@@ -212,8 +288,7 @@ export default function App() {
         if (cancelRef.current) return
         const my = cursor++
         if (my >= queue.length) return
-        const job = queue[my]
-        await runOne(job)
+        await runOne(queue[my])
       }
     }
 
@@ -221,7 +296,18 @@ export default function App() {
 
     abortRef.current = null
     setIsRunning(false)
-  }, [apiBase, apiToken, aspectRatio, encodeMode, jobs, model, promptExtra, size, updateJob])
+  }, [
+    apiBase,
+    apiToken,
+    aspectRatio,
+    encodeImage,
+    fabricSource,
+    jobs,
+    model,
+    promptExtra,
+    size,
+    updateJob,
+  ])
 
   const displayJobs = useMemo(() => {
     const rank = (s: JobStatus) => (s === 'done' ? 0 : s === 'running' ? 1 : s === 'queued' ? 2 : 3)
@@ -236,19 +322,22 @@ export default function App() {
     })
   }, [jobs])
 
+  const canStart = Boolean(fabricSource && jobs.length > 0 && apiToken.trim())
+
   const downloadOne = (job: Job) => {
     if (!job.resultDataUrl) return
     const a = document.createElement('a')
     a.href = job.resultDataUrl
     const stem = safeBaseName(job.file.name.replace(/\.[^.]+$/, ''))
-    a.download = `${stem}_product.${extensionFromMime(job.file)}`
+    const ext = job.resultDataUrl.startsWith('data:image/png') ? 'png' : extensionFromMime(job.file)
+    a.download = `${stem}_换布结果.${ext}`
     a.click()
   }
 
   const downloadZip = async () => {
     const done = jobs.filter((j) => j.status === 'done' && j.resultDataUrl)
     if (done.length === 0) {
-      alert('没有已完成的图片可打包。')
+      alert('还没有生成完成的图片。')
       return
     }
     const zip = new JSZip()
@@ -256,170 +345,276 @@ export default function App() {
       const res = await fetch(job.resultDataUrl!)
       const blob = await res.blob()
       const stem = safeBaseName(job.file.name.replace(/\.[^.]+$/, ''))
-      zip.file(`${stem}_product.png`, blob)
+      zip.file(`${stem}_换布结果.png`, blob)
     }
     const out = await zip.generateAsync({ type: 'blob' })
-    saveAs(out, `product-shots-${new Date().toISOString().slice(0, 10)}.zip`)
+    saveAs(out, `换布结果-${new Date().toISOString().slice(0, 10)}.zip`)
   }
 
   return (
     <div className="app">
       <header className="app-header">
-        <h1>服装白底商品图 · 批量生成</h1>
-        <p>
-          将模特架实拍图转为电商幽灵人体白底图。调用中转站{' '}
-          <code>{DEFAULT_API_BASE}</code> 的 <code>/v1/images/generations</code>（模型如{' '}
-          <code>gpt-image-2</code>）。若浏览器报 CORS 错误，需中转站开启跨域或使用可禁用 CORS 的本地插件调试。
-        </p>
+        <h1>服装布料换花</h1>
+        <p className="app-tagline">把 A 图的衣服布料，换到 B 图的衣服上（背景、版型不变）</p>
       </header>
 
+      <ol className="steps-overview" aria-label="使用步骤">
+        <li className={apiToken.trim() ? 'done' : ''}>
+          <span className="step-num">1</span>
+          <span>填写密钥</span>
+        </li>
+        <li className={fabricSource ? 'done' : ''}>
+          <span className="step-num">2</span>
+          <span>上传布料图</span>
+        </li>
+        <li className={jobs.length > 0 ? 'done' : ''}>
+          <span className="step-num">3</span>
+          <span>上传要换的图</span>
+        </li>
+        <li>
+          <span className="step-num">4</span>
+          <span>开始换布</span>
+        </li>
+      </ol>
+
       <div className="app-body">
-        <aside className="panel">
-          <div className="section-title">接口</div>
+        <aside className="panel panel-settings">
+          <h2 className="panel-heading">连接设置</h2>
           <div className="field">
-            <label htmlFor="base">API Base URL</label>
-            <input
-              id="base"
-              type="url"
-              value={apiBase}
-              onChange={(e) => setApiBase(e.target.value)}
-              placeholder="https://ai.t8star.cn"
-              autoComplete="off"
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="token">API Token（Bearer）</label>
+            <label htmlFor="token">API 密钥</label>
             <input
               id="token"
               type="password"
               value={apiToken}
               onChange={(e) => setApiToken(e.target.value)}
-              placeholder="sk-..."
+              placeholder="粘贴你的 sk- 密钥"
               autoComplete="off"
             />
-            <p className="field-hint">仅保存在本机浏览器 localStorage，请勿在公共电脑使用。</p>
-          </div>
-          <div className="field">
-            <label htmlFor="model">模型 model</label>
-            <input
-              id="model"
-              type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="gpt-image-2"
-            />
+            <p className="field-hint">只保存在本机浏览器，勿在公共电脑使用。</p>
           </div>
 
-          <div className="row2">
-            <div className="field">
-              <label htmlFor="size">size</label>
-              <select id="size" value={size} onChange={(e) => setSize(e.target.value)}>
-                {SIZE_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+          <details className="settings-advanced">
+            <summary>高级选项（一般不用改）</summary>
+            <div className="settings-advanced-body">
+              <div className="field">
+                <label htmlFor="base">接口地址</label>
+                <input
+                  id="base"
+                  type="url"
+                  value={apiBase}
+                  onChange={(e) => setApiBase(e.target.value)}
+                  placeholder="https://ai.t8star.cn"
+                  autoComplete="off"
+                />
+                <p className="field-hint">本地若报跨域，可填 http://localhost:5173/t8proxy</p>
+              </div>
+              <div className="field">
+                <label htmlFor="model">模型</label>
+                <input
+                  id="model"
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="gpt-image-2"
+                />
+              </div>
+              <div className="row2">
+                <div className="field">
+                  <label htmlFor="size">输出尺寸</label>
+                  <select id="size" value={size} onChange={(e) => setSize(e.target.value)}>
+                    {SIZE_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="aspect">画面比例</label>
+                  <select id="aspect" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)}>
+                    {ASPECT_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="extra">补充要求（可选）</label>
+                <textarea
+                  id="extra"
+                  value={promptExtra}
+                  onChange={(e) => setPromptExtra(e.target.value)}
+                  placeholder="例如：印花再大一点；保留 V 领。"
+                  rows={3}
+                />
+              </div>
             </div>
-            <div className="field">
-              <label htmlFor="aspect">aspect_ratio</label>
-              <select id="aspect" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)}>
-                {ASPECT_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="field">
-            <label>参考图编码</label>
-            <select value={encodeMode} onChange={(e) => setEncodeMode(e.target.value as 'dataurl' | 'raw')}>
-              <option value="dataurl">Data URL（推荐，含 data:image/... 前缀）</option>
-              <option value="raw">仅 Base64 字符串</option>
-            </select>
-            <p className="field-hint">若接口报错可切换为「仅 Base64」重试。</p>
-          </div>
-
-          <p className="field-hint">
-            并发：与当前待生成张数相同，最多同时 {MAX_BATCH_CONCURRENCY} 张；先完成的会排在列表最前。
-          </p>
-
-          <div className="section-title">提示词追加</div>
-          <div className="field">
-            <label htmlFor="extra">附加说明（可选）</label>
-            <textarea
-              id="extra"
-              value={promptExtra}
-              onChange={(e) => setPromptExtra(e.target.value)}
-              placeholder="例如：保留浅蓝与绿色印花；V 领与胸前扭结结构与参考图一致。"
-            />
-            <p className="field-hint">
-              已在后台拼接英文主提示词（白底、幽灵人体、无支架、保留与上传图相同的拍摄角度：背面/侧面等不强行转正）。此处可写中文或英文补充。
-            </p>
-          </div>
+          </details>
         </aside>
 
         <main className="panel-main">
-          <div className="toolbar">
-            <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
-              选择图片
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                disabled={isRunning}
-                onChange={(e) => {
-                  if (e.target.files?.length) addFiles(e.target.files)
-                  e.target.value = ''
-                }}
-              />
-            </label>
-            <button type="button" className="btn btn-primary" disabled={isRunning} onClick={() => void runBatch()}>
-              开始生成
-            </button>
-            <button type="button" className="btn btn-ghost" disabled={!isRunning} onClick={stopRun}>
-              停止
-            </button>
-            <button type="button" className="btn btn-secondary" disabled={isRunning || jobs.length === 0} onClick={clearJobs}>
-              清空列表
-            </button>
-            <button type="button" className="btn btn-secondary" disabled={isRunning} onClick={() => void downloadZip()}>
-              下载 ZIP（已完成）
-            </button>
-          </div>
-
-          <div
-            className={`dropzone${dragOver ? ' drag' : ''}`}
-            onDragOver={(e) => {
-              e.preventDefault()
-              setDragOver(true)
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setDragOver(false)
-              if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files)
-            }}
+          <section
+            className={`step-card paste-zone${pasteTarget === 'fabric' ? ' paste-zone-active' : ''}${fabricSource ? ' step-card-done' : ''}`}
+            tabIndex={0}
+            onFocus={() => setPasteTarget('fabric')}
+            onMouseDown={() => setPasteTarget('fabric')}
+            onPaste={(e) => handlePaste(e, 'fabric')}
           >
-            <strong>拖拽图片到此处</strong>
-            <span>支持多选；仅处理 image/*</span>
-          </div>
+            <div className="step-card-head">
+              <span className="step-badge">第 1 步</span>
+              <h2>上传「布料图」</h2>
+            </div>
+            <p className="step-desc">你要换上的那件衣服：只取它的<strong>印花和布料颜色</strong>，不要管它的背景。</p>
 
-          {jobs.length === 0 ? (
-            <p className="field-hint" style={{ marginTop: '1.5rem' }}>
-              上传后每张图会显示原图与生成结果；不满意或失败时，可改提示词或 Token 后再次点击「开始生成」重新生成（含已成功的也会整批重跑）。
+            <div className="upload-card">
+              <div className={`preview-box${fabricSource ? '' : ' empty'}`}>
+                {fabricSource ? (
+                  <img src={fabricSource.previewObjectUrl} alt="布料图预览" />
+                ) : (
+                  <span className="preview-placeholder">点击右侧按钮或粘贴图片</span>
+                )}
+              </div>
+              <div className="upload-card-actions">
+                <label className="btn btn-secondary">
+                  选择图片
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={isRunning}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) setFabricFromFile(f)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={isRunning || !fabricSource}
+                  onClick={clearFabricSource}
+                >
+                  重新选择
+                </button>
+                <p className="upload-tip">
+                  先点一下本区域，再按 <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>V</kbd> 可粘贴截图
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section
+            className={`step-card paste-zone${pasteTarget === 'target' ? ' paste-zone-active' : ''}${jobs.length > 0 ? ' step-card-done' : ''}`}
+            tabIndex={0}
+            onFocus={() => setPasteTarget('target')}
+            onMouseDown={() => setPasteTarget('target')}
+            onPaste={(e) => handlePaste(e, 'target')}
+          >
+            <div className="step-card-head">
+              <span className="step-badge">第 2 步</span>
+              <h2>上传「要换布的照片」</h2>
+            </div>
+            <p className="step-desc">
+              模特图、场景图都可以，可一次传多张。<strong>人物、背景、衣服版型</strong>都会尽量保留，只换衣服布料。
             </p>
-          ) : (
-            <>
-              <p className="section-title">任务 {jobs.length} 张（已完成优先按完成顺序显示）</p>
+
+            <div
+              className={`dropzone${targetDragOver ? ' drag' : ''}`}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setTargetDragOver(true)
+              }}
+              onDragLeave={() => setTargetDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setTargetDragOver(false)
+                if (e.dataTransfer.files?.length) addTargetFiles(e.dataTransfer.files)
+              }}
+            >
+              <p className="dropzone-title">拖入图片，或点击选择</p>
+              <p className="dropzone-sub">支持多选 · 粘贴前请先点一下本区域</p>
+              <label className="btn btn-secondary dropzone-btn">
+                选择多张图片
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={isRunning}
+                  onChange={(e) => {
+                    if (e.target.files?.length) addTargetFiles(e.target.files)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </div>
+
+            {jobs.length > 0 ? (
+              <p className="target-count">已添加 {jobs.length} 张</p>
+            ) : null}
+          </section>
+
+          <section className="step-card step-card-action">
+            <div className="step-card-head">
+              <span className="step-badge step-badge-accent">第 3 步</span>
+              <h2>开始生成</h2>
+            </div>
+
+            <div className="action-row">
+              <button
+                type="button"
+                className="btn btn-primary btn-lg"
+                disabled={isRunning || !canStart}
+                onClick={() => void runBatch()}
+              >
+                {isRunning ? '正在换布…' : '开始换布'}
+              </button>
+              {isRunning ? (
+                <button type="button" className="btn btn-ghost" onClick={stopRun}>
+                  停止
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={isRunning || jobStats.done === 0}
+                onClick={() => void downloadZip()}
+              >
+                打包下载（{jobStats.done}）
+              </button>
+            </div>
+
+            {!canStart && !isRunning ? (
+              <p className="action-hint">
+                {!apiToken.trim()
+                  ? '请先在左侧填写 API 密钥'
+                  : !fabricSource
+                    ? '请先完成第 1 步'
+                    : '请先完成第 2 步'}
+              </p>
+            ) : null}
+
+            {isRunning && jobs.length > 0 ? (
+              <p className="progress-line">
+                进度：已完成 {jobStats.done} / {jobStats.total}
+                {jobStats.running > 0 ? `，进行中 ${jobStats.running}` : ''}
+                {jobStats.error > 0 ? `，失败 ${jobStats.error}` : ''}
+              </p>
+            ) : null}
+          </section>
+
+          {jobs.length > 0 ? (
+            <section className="results-section">
+              <h2 className="results-heading">生成结果</h2>
               <div className="job-grid">
                 {displayJobs.map((job) => (
                   <article key={job.id} className="job-card">
                     <div className="job-card-head">
-                      <span title={job.file.name}>{job.file.name}</span>
-                      <span className={`status status-${job.status}`}>{job.status}</span>
+                      <span className="job-name" title={job.file.name}>
+                        {job.file.name}
+                      </span>
+                      <span className={`status status-${job.status}`}>{STATUS_LABEL[job.status]}</span>
                     </div>
                     <div className="job-images">
                       <figure>
@@ -428,59 +623,38 @@ export default function App() {
                       </figure>
                       <figure>
                         {job.resultDataUrl ? (
-                          <img src={job.resultDataUrl} alt="生成" />
+                          <img src={job.resultDataUrl} alt="换布后" />
                         ) : (
-                          <span className="field-hint" style={{ padding: '0.5rem' }}>
-                            {job.status === 'running' ? '生成中…' : '—'}
+                          <span className="result-placeholder">
+                            {job.status === 'running' ? '生成中…' : job.status === 'error' ? '生成失败' : '等待生成'}
                           </span>
                         )}
-                        <figcaption>生成</figcaption>
+                        <figcaption>换布后</figcaption>
                       </figure>
                     </div>
                     {job.error ? <div className="job-error">{job.error}</div> : null}
                     <div className="job-actions">
-                      <button type="button" className="btn btn-ghost" disabled={isRunning} onClick={() => removeJob(job.id)}>
-                        移除
-                      </button>
                       <button
                         type="button"
                         className="btn btn-secondary"
                         disabled={!job.resultDataUrl}
                         onClick={() => downloadOne(job)}
                       >
-                        下载此张
+                        下载
                       </button>
-                      {job.rawJson ? (
-                        <details className="raw" style={{ width: '100%' }}>
-                          <summary>原始响应 JSON</summary>
-                          <pre>{JSON.stringify(job.rawJson, null, 2)}</pre>
-                        </details>
-                      ) : null}
+                      <button type="button" className="btn btn-ghost" disabled={isRunning} onClick={() => removeJob(job.id)}>
+                        删除
+                      </button>
                     </div>
                   </article>
                 ))}
               </div>
-            </>
-          )}
-
-          <div className="section-title">调试</div>
-          <button type="button" className="btn btn-ghost" onClick={() => setLogExpanded((v) => !v)}>
-            {logExpanded ? '收起' : '展开'}主提示词预览
-          </button>
-          {logExpanded ? (
-            <pre
-              style={{
-                marginTop: '0.5rem',
-                padding: '0.75rem',
-                background: 'var(--input-bg)',
-                borderRadius: 8,
-                fontSize: '0.75rem',
-                overflow: 'auto',
-                maxHeight: 200,
-              }}
-            >
-              {DEFAULT_PROMPT}
-            </pre>
+              <div className="results-footer">
+                <button type="button" className="btn btn-ghost" disabled={isRunning} onClick={clearJobs}>
+                  清空全部目标图
+                </button>
+              </div>
+            </section>
           ) : null}
         </main>
       </div>

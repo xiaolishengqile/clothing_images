@@ -6,6 +6,10 @@ export interface GenerationsBody {
   size: string
   aspect_ratio: string
   image: string[]
+  /** 与 OpenAI Image API 对齐；部分模型（如官方文档称 gpt-image-2）可能不支持 transparent */
+  background?: 'transparent' | 'opaque' | 'auto'
+  /** 透明底需 png/webp；与 background 一并由网关决定是否接受 */
+  output_format?: 'png' | 'jpeg' | 'webp'
 }
 
 function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {

@@ -23,3 +23,31 @@ export function blobToDataURL(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob)
   })
 }
+
+function fileFromImageBlob(blob: Blob, index: number): File {
+  const type = blob.type && /^image\//.test(blob.type) ? blob.type : 'image/png'
+  const ext = type.includes('jpeg') || type.includes('jpg') ? 'jpg' : type.includes('webp') ? 'webp' : 'png'
+  return new File([blob], `paste-${Date.now()}-${index}.${ext}`, { type })
+}
+
+/** 从剪贴板或拖放 DataTransfer 中提取图片 File（截图、复制图片文件等） */
+export function getImageFilesFromDataTransfer(dt: DataTransfer): File[] {
+  const out: File[] = []
+  if (dt.files?.length) {
+    for (const f of dt.files) {
+      if (/^image\//.test(f.type)) out.push(f)
+    }
+  }
+  if (out.length > 0) return out
+
+  for (let i = 0; i < dt.items.length; i++) {
+    const item = dt.items[i]
+    if (item.kind !== 'file') continue
+    const f = item.getAsFile()
+    if (f && /^image\//.test(f.type)) out.push(f)
+    else if (f && !f.type) {
+      out.push(fileFromImageBlob(f, out.length))
+    }
+  }
+  return out
+}

@@ -5,6 +5,7 @@ import { postImagesGenerations, type GenerationsBody } from './api/imagesGenerat
 import {
   ASPECT_OPTIONS,
   buildFabricTransferPrompt,
+  DEFAULT_PROMPT_SUFFIX,
   DEFAULT_API_BASE,
   DEFAULT_MODEL,
   MAX_BATCH_CONCURRENCY,
@@ -231,7 +232,13 @@ export default function App() {
     cancelRef.current = false
     setIsRunning(true)
 
-    const fullPrompt = [buildFabricTransferPrompt(), promptExtra.trim()].filter(Boolean).join('\n\n')
+    const fullPrompt = [
+      buildFabricTransferPrompt(queue.length > 1),
+      DEFAULT_PROMPT_SUFFIX,
+      promptExtra.trim(),
+    ]
+      .filter(Boolean)
+      .join('\n\n')
 
     let fabricPayload: string
     try {
@@ -355,7 +362,7 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>服装布料换花</h1>
-        <p className="app-tagline">把 A 图的衣服布料，换到 B 图的衣服上（背景、版型不变）</p>
+        <p className="app-tagline">生成一组上架图：让人看出是同一套衣服，只是在不同时间、不同姿势下拍的</p>
       </header>
 
       <ol className="steps-overview" aria-label="使用步骤">
@@ -373,7 +380,7 @@ export default function App() {
         </li>
         <li>
           <span className="step-num">4</span>
-          <span>开始换布</span>
+          <span>生成同款图</span>
         </li>
       </ol>
 
@@ -446,7 +453,7 @@ export default function App() {
                   id="extra"
                   value={promptExtra}
                   onChange={(e) => setPromptExtra(e.target.value)}
-                  placeholder="例如：印花再大一点；保留 V 领。"
+                  placeholder="例如：棕褐色叶子印花、白底，颜色与布料图完全一致；不要牛仔拼布。"
                   rows={3}
                 />
               </div>
@@ -466,7 +473,13 @@ export default function App() {
               <span className="step-badge">第 1 步</span>
               <h2>上传「布料图」</h2>
             </div>
-            <p className="step-desc">你要换上的那件衣服：只取它的<strong>印花和布料颜色</strong>，不要管它的背景。</p>
+            <p className="step-desc">
+              这一张定义「这一套衣服」长什么样：<strong>花纹 + 颜色</strong>固定不变，后面所有模特图都穿同一款布。推荐平铺布料/衣服特写。
+            </p>
+            <ul className="tip-list">
+              <li>换另一款布时，先点「重新选择」换掉布料图，并建议清空下方目标图后重传</li>
+              <li>目标图里原来的碎花、牛仔拼布等会被替换，不会保留</li>
+            </ul>
 
             <div className="upload-card">
               <div className={`preview-box${fabricSource ? '' : ' empty'}`}>
@@ -517,7 +530,7 @@ export default function App() {
               <h2>上传「要换布的照片」</h2>
             </div>
             <p className="step-desc">
-              模特图、场景图都可以，可一次传多张。<strong>人物、背景、衣服版型</strong>都会尽量保留，只换衣服布料。
+              可一次传多张（不同姿势、不同场景）。每张只换布，效果要像<strong>同一套衣服隔几天又拍了一张</strong>——看花色的客人不会觉得是两件货。
             </p>
 
             <div
@@ -558,7 +571,7 @@ export default function App() {
           <section className="step-card step-card-action">
             <div className="step-card-head">
               <span className="step-badge step-badge-accent">第 3 步</span>
-              <h2>开始生成</h2>
+              <h2>生成同一套衣服的多张图</h2>
             </div>
 
             <div className="action-row">
@@ -568,7 +581,7 @@ export default function App() {
                 disabled={isRunning || !canStart}
                 onClick={() => void runBatch()}
               >
-                {isRunning ? '正在换布…' : '开始换布'}
+                {isRunning ? '正在生成…' : '开始生成'}
               </button>
               {isRunning ? (
                 <button type="button" className="btn btn-ghost" onClick={stopRun}>

@@ -310,6 +310,22 @@
   font-weight: 600;
 }
 
+.tip-list {
+  margin: -0.35rem 0 1rem;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.tip-list li {
+  margin-bottom: 0.35rem;
+}
+
+.tip-list li::marker {
+  color: var(--accent);
+}
+
 .paste-zone {
   outline: 2px solid transparent;
   outline-offset: 3px;

@@ -1,0 +1,58 @@
+import { ASPECT_OPTIONS } from './constants'
+
+export async function getImageDimensions(file: File): Promise<{ width: number; height: number }> {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('无法读取图片尺寸'))
+      el.src = url
+    })
+    return { width: img.naturalWidth, height: img.naturalHeight }
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+function parseAspectRatio(label: string): number {
+  const [w, h] = label.split(':').map(Number)
+  if (!w || !h) return 1
+  return w / h
+}
+
+/** 从预设比例中选取与图片宽高比最接近的一项 */
+export function closestAspectLabel(
+  width: number,
+  height: number,
+  options: readonly string[] = ASPECT_OPTIONS,
+): string {
+  const r = width / height
+  let best = options[0] ?? '3:4'
+  let bestDiff = Infinity
+  for (const opt of options) {
+    const diff = Math.abs(parseAspectRatio(opt) - r)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      best = opt
+    }
+  }
+  return best
+}
+
+/** 与画面比例对应的 API size（在网关支持的 SIZE_OPTIONS 中取最接近的竖/横图尺寸） */
+export const ASPECT_TO_SIZE: Record<string, string> = {
+  '1:1': '1024x1024',
+  '2:3': '1024x1536',
+  '3:2': '1536x1024',
+  '3:4': '1024x1536',
+  '4:3': '1536x1024',
+  '4:5': '1024x1536',
+  '5:4': '1536x1024',
+  '9:16': '1024x1792',
+  '16:9': '1792x1024',
+}
+
+export function sizeForAspect(aspect: string, fallback = '1024x1536'): string {
+  return ASPECT_TO_SIZE[aspect] ?? fallback
+}

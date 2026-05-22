@@ -5,18 +5,27 @@ import { postImagesGenerations, type GenerationsBody } from './api/imagesGenerat
 import {
   ASPECT_OPTIONS,
   buildFabricTransferPrompt,
+  DEFAULT_ASPECT_RATIO,
   DEFAULT_PROMPT_SUFFIX,
   DEFAULT_API_BASE,
   DEFAULT_MODEL,
+  DEFAULT_SIZE,
   MAX_BATCH_CONCURRENCY,
   SIZE_OPTIONS,
   STORAGE_KEY_ASPECT,
   STORAGE_KEY_BASE,
+  STORAGE_KEY_FOLLOW_TARGET_ASPECT,
   STORAGE_KEY_PROMPT,
   STORAGE_KEY_SIZE,
   STORAGE_KEY_TOKEN,
 } from './lib/constants'
 import { getImageFilesFromDataTransfer, readFileAsDataURL } from './lib/files'
+import { closestAspectLabel, getImageDimensions, sizeForAspect } from './lib/imageAspect'
+import {
+  buildPerJobPromptSuffix,
+  checkTargetImage,
+  type TargetImageWarning,
+} from './lib/targetImageCheck'
 import './App.css'
 
 type JobStatus = 'queued' | 'running' | 'done' | 'error'
@@ -50,6 +59,9 @@ interface Job {
   resultDataUrl?: string
   addedSeq: number
   completedAt?: number
+  warnings?: TargetImageWarning[]
+  /** 背面拍摄：生成时强制保持背面视角 */
+  isBackView?: boolean
 }
 
 function safeBaseName(name: string): string {
@@ -70,8 +82,13 @@ export default function App() {
   const [apiToken, setApiToken] = useState(() => localStorage.getItem(STORAGE_KEY_TOKEN) ?? '')
   const [model, setModel] = useState(DEFAULT_MODEL)
   const [promptExtra, setPromptExtra] = useState(() => localStorage.getItem(STORAGE_KEY_PROMPT) ?? '')
-  const [size, setSize] = useState(() => localStorage.getItem(STORAGE_KEY_SIZE) ?? '1024x1024')
-  const [aspectRatio, setAspectRatio] = useState(() => localStorage.getItem(STORAGE_KEY_ASPECT) ?? '1:1')
+  const [size, setSize] = useState(() => localStorage.getItem(STORAGE_KEY_SIZE) ?? DEFAULT_SIZE)
+  const [aspectRatio, setAspectRatio] = useState(
+    () => localStorage.getItem(STORAGE_KEY_ASPECT) ?? DEFAULT_ASPECT_RATIO,
+  )
+  const [followTargetAspect, setFollowTargetAspect] = useState(
+    () => localStorage.getItem(STORAGE_KEY_FOLLOW_TARGET_ASPECT) !== '0',
+  )
 
   const [fabricSource, setFabricSource] = useState<FabricSource | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
@@ -99,6 +116,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_ASPECT, aspectRatio)
   }, [aspectRatio])
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_FOLLOW_TARGET_ASPECT, followTargetAspect ? '1' : '0')
+  }, [followTargetAspect])
   useEffect(() => {
     pasteTargetRef.current = pasteTarget
   }, [pasteTarget])
@@ -137,23 +157,29 @@ export default function App() {
     })
   }, [])
 
-  const addTargetFiles = useCallback((list: FileList | File[]) => {
-    const arr = Array.from(list).filter((f) => /^image\//.test(f.type))
-    if (arr.length === 0) return
-    setJobs((prev) => {
-      const next: Job[] = [...prev]
-      for (const file of arr) {
-        next.push({
-          id: crypto.randomUUID(),
-          file,
-          previewObjectUrl: URL.createObjectURL(file),
-          status: 'queued',
-          addedSeq: addedSeqRef.current++,
+  const addTargetFiles = useCallback(
+    (list: FileList | File[]) => {
+      const arr = Array.from(list).filter((f) => /^image\//.test(f.type))
+      if (arr.length === 0) return
+      const newJobs: Job[] = arr.map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewObjectUrl: URL.createObjectURL(file),
+        status: 'queued' as const,
+        addedSeq: addedSeqRef.current++,
+      }))
+      setJobs((prev) => [...prev, ...newJobs])
+      for (const job of newJobs) {
+        void checkTargetImage(job.file).then(({ warnings, suggestBackView }) => {
+          updateJob(job.id, {
+            warnings: warnings.length > 0 ? warnings : undefined,
+            isBackView: suggestBackView ? true : undefined,
+          })
         })
       }
-      return next
-    })
-  }, [])
+    },
+    [updateJob],
+  )
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent | ClipboardEvent, target: PasteTarget) => {
@@ -229,6 +255,18 @@ export default function App() {
       return
     }
 
+    const risky = queue.filter((j) => j.warnings && j.warnings.length > 0)
+    if (risky.length > 0) {
+      const lines = risky
+        .slice(0, 8)
+        .map((j) => `· ${j.file.name}：${j.warnings!.map((w) => w.message).join('；')}`)
+      const more = risky.length > 8 ? `\n…另有 ${risky.length - 8} 张` : ''
+      const ok = window.confirm(
+        `有 ${risky.length} 张目标图容易引发「补全全图 / 背面变正面 / 布样变套装」等问题：\n\n${lines.join('\n')}${more}\n\n建议删除后换成完整商品图。仍要继续生成？`,
+      )
+      if (!ok) return
+    }
+
     cancelRef.current = false
     setIsRunning(true)
 
@@ -262,11 +300,22 @@ export default function App() {
       try {
         const targetPayload = await encodeImage(job.file)
 
+        let jobAspect = aspectRatio
+        let jobSize = size
+        if (followTargetAspect) {
+          const { width, height } = await getImageDimensions(job.file)
+          jobAspect = closestAspectLabel(width, height)
+          jobSize = sizeForAspect(jobAspect, size)
+        }
+
+        const jobPromptSuffix = buildPerJobPromptSuffix(job.warnings ?? [], job.isBackView === true)
+        const prompt = [fullPrompt, jobPromptSuffix].filter(Boolean).join('\n\n')
+
         const genBody: GenerationsBody = {
           model: model.trim() || DEFAULT_MODEL,
-          prompt: fullPrompt,
-          size,
-          aspect_ratio: aspectRatio,
+          prompt,
+          size: jobSize,
+          aspect_ratio: jobAspect,
           image: [fabricPayload, targetPayload],
         }
 
@@ -309,6 +358,7 @@ export default function App() {
     aspectRatio,
     encodeImage,
     fabricSource,
+    followTargetAspect,
     jobs,
     model,
     promptExtra,
@@ -365,6 +415,108 @@ export default function App() {
         <p className="app-tagline">生成一组上架图：让人看出是同一套衣服，只是在不同时间、不同姿势下拍的</p>
       </header>
 
+      <section className="app-toolbar" aria-label="连接设置">
+        <div className="toolbar-token">
+          <label htmlFor="token" className="toolbar-label">
+            API 密钥
+          </label>
+          <input
+            id="token"
+            className="toolbar-input"
+            type="password"
+            value={apiToken}
+            onChange={(e) => setApiToken(e.target.value)}
+            placeholder="粘贴你的 sk- 密钥"
+            autoComplete="off"
+          />
+          <span className="toolbar-hint">只保存在本机浏览器</span>
+        </div>
+
+        <details className="settings-advanced toolbar-advanced">
+          <summary>高级选项</summary>
+          <div className="settings-advanced-body toolbar-advanced-body">
+            <div className="toolbar-advanced-grid">
+              <div className="field">
+                <label htmlFor="base">接口地址</label>
+                <input
+                  id="base"
+                  type="url"
+                  value={apiBase}
+                  onChange={(e) => setApiBase(e.target.value)}
+                  placeholder="https://ai.t8star.cn"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="model">模型</label>
+                <input
+                  id="model"
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="gpt-image-2"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="size">输出尺寸{followTargetAspect ? '（自动）' : ''}</label>
+                <select
+                  id="size"
+                  value={size}
+                  disabled={followTargetAspect}
+                  onChange={(e) => setSize(e.target.value)}
+                >
+                  {SIZE_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="aspect">画面比例{followTargetAspect ? '（自动）' : ''}</label>
+                <select
+                  id="aspect"
+                  value={aspectRatio}
+                  disabled={followTargetAspect}
+                  onChange={(e) => setAspectRatio(e.target.value)}
+                >
+                  {ASPECT_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field field-span2 field-checkbox">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={followTargetAspect}
+                    onChange={(e) => setFollowTargetAspect(e.target.checked)}
+                  />
+                  跟随每张模特图比例（推荐，多为 3:4）
+                </label>
+              </div>
+              <div className="field field-span2">
+                <label htmlFor="extra">补充要求（可选）</label>
+                <textarea
+                  id="extra"
+                  value={promptExtra}
+                  onChange={(e) => setPromptExtra(e.target.value)}
+                  placeholder="例如：棕褐色叶子印花、白底，颜色与布料图完全一致；不要牛仔拼布。"
+                  rows={2}
+                />
+              </div>
+            </div>
+            {followTargetAspect ? (
+              <p className="field-hint">生成时按每张原图宽高自动选最接近比例（如 3:4、9:16）。本地跨域可填 http://localhost:5173/t8proxy</p>
+            ) : (
+              <p className="field-hint">本地若报跨域，接口地址可填 http://localhost:5173/t8proxy</p>
+            )}
+          </div>
+        </details>
+      </section>
+
       <ol className="steps-overview" aria-label="使用步骤">
         <li className={apiToken.trim() ? 'done' : ''}>
           <span className="step-num">1</span>
@@ -384,86 +536,10 @@ export default function App() {
         </li>
       </ol>
 
-      <div className="app-body">
-        <aside className="panel panel-settings">
-          <h2 className="panel-heading">连接设置</h2>
-          <div className="field">
-            <label htmlFor="token">API 密钥</label>
-            <input
-              id="token"
-              type="password"
-              value={apiToken}
-              onChange={(e) => setApiToken(e.target.value)}
-              placeholder="粘贴你的 sk- 密钥"
-              autoComplete="off"
-            />
-            <p className="field-hint">只保存在本机浏览器，勿在公共电脑使用。</p>
-          </div>
-
-          <details className="settings-advanced">
-            <summary>高级选项（一般不用改）</summary>
-            <div className="settings-advanced-body">
-              <div className="field">
-                <label htmlFor="base">接口地址</label>
-                <input
-                  id="base"
-                  type="url"
-                  value={apiBase}
-                  onChange={(e) => setApiBase(e.target.value)}
-                  placeholder="https://ai.t8star.cn"
-                  autoComplete="off"
-                />
-                <p className="field-hint">本地若报跨域，可填 http://localhost:5173/t8proxy</p>
-              </div>
-              <div className="field">
-                <label htmlFor="model">模型</label>
-                <input
-                  id="model"
-                  type="text"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="gpt-image-2"
-                />
-              </div>
-              <div className="row2">
-                <div className="field">
-                  <label htmlFor="size">输出尺寸</label>
-                  <select id="size" value={size} onChange={(e) => setSize(e.target.value)}>
-                    {SIZE_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="aspect">画面比例</label>
-                  <select id="aspect" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)}>
-                    {ASPECT_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="field">
-                <label htmlFor="extra">补充要求（可选）</label>
-                <textarea
-                  id="extra"
-                  value={promptExtra}
-                  onChange={(e) => setPromptExtra(e.target.value)}
-                  placeholder="例如：棕褐色叶子印花、白底，颜色与布料图完全一致；不要牛仔拼布。"
-                  rows={3}
-                />
-              </div>
-            </div>
-          </details>
-        </aside>
-
-        <main className="panel-main">
+      <main className="app-main">
+        <div className="upload-steps-row">
           <section
-            className={`step-card paste-zone${pasteTarget === 'fabric' ? ' paste-zone-active' : ''}${fabricSource ? ' step-card-done' : ''}`}
+            className={`step-card step-card-upload paste-zone${pasteTarget === 'fabric' ? ' paste-zone-active' : ''}${fabricSource ? ' step-card-done' : ''}`}
             tabIndex={0}
             onFocus={() => setPasteTarget('fabric')}
             onMouseDown={() => setPasteTarget('fabric')}
@@ -474,11 +550,11 @@ export default function App() {
               <h2>上传「布料图」</h2>
             </div>
             <p className="step-desc">
-              这一张定义「这一套衣服」长什么样：<strong>花纹 + 颜色</strong>固定不变，后面所有模特图都穿同一款布。推荐平铺布料/衣服特写。
+              这一张只提供<strong>花纹 + 颜色</strong>来源，系统从中提取布面花色。推荐平铺布料特写；若用穿着照，只取身上布面，不会带入模特，也不会把裙子版型套到目标图上。
             </p>
             <ul className="tip-list">
-              <li>换另一款布时，先点「重新选择」换掉布料图，并建议清空下方目标图后重传</li>
-              <li>目标图里原来的碎花、牛仔拼布等会被替换，不会保留</li>
+              <li>换另一款布时，先点「重新选择」换掉布料图，并建议清空右侧目标图后重传</li>
+              <li>目标图无模特时（平铺/挂拍等），结果也不会出现模特；有模特时，长相、姿势、版型均不变，只换布面花色</li>
             </ul>
 
             <div className="upload-card">
@@ -519,7 +595,7 @@ export default function App() {
           </section>
 
           <section
-            className={`step-card paste-zone${pasteTarget === 'target' ? ' paste-zone-active' : ''}${jobs.length > 0 ? ' step-card-done' : ''}`}
+            className={`step-card step-card-upload paste-zone${pasteTarget === 'target' ? ' paste-zone-active' : ''}${jobs.length > 0 ? ' step-card-done' : ''}`}
             tabIndex={0}
             onFocus={() => setPasteTarget('target')}
             onMouseDown={() => setPasteTarget('target')}
@@ -530,7 +606,7 @@ export default function App() {
               <h2>上传「要换布的照片」</h2>
             </div>
             <p className="step-desc">
-              可一次传多张（不同姿势、不同场景）。每张只换布，效果要像<strong>同一套衣服隔几天又拍了一张</strong>——看花色的客人不会觉得是两件货。
+              请传<strong>完整商品图</strong>（平铺/模特/挂拍），勿传布样特写。可多张上传；背面、局部图易跑偏，上传后会自动提示风险。
             </p>
 
             <div
@@ -567,8 +643,9 @@ export default function App() {
               <p className="target-count">已添加 {jobs.length} 张</p>
             ) : null}
           </section>
+        </div>
 
-          <section className="step-card step-card-action">
+        <section className="step-card step-card-action">
             <div className="step-card-head">
               <span className="step-badge step-badge-accent">第 3 步</span>
               <h2>生成同一套衣服的多张图</h2>
@@ -601,7 +678,7 @@ export default function App() {
             {!canStart && !isRunning ? (
               <p className="action-hint">
                 {!apiToken.trim()
-                  ? '请先在左侧填写 API 密钥'
+                  ? '请先在顶部填写 API 密钥'
                   : !fabricSource
                     ? '请先完成第 1 步'
                     : '请先完成第 2 步'}
@@ -622,17 +699,29 @@ export default function App() {
               <h2 className="results-heading">生成结果</h2>
               <div className="job-grid">
                 {displayJobs.map((job) => (
-                  <article key={job.id} className="job-card">
+                  <article
+                    key={job.id}
+                    className={`job-card${job.warnings?.length ? ' job-card-warn' : ''}`}
+                  >
                     <div className="job-card-head">
                       <span className="job-name" title={job.file.name}>
                         {job.file.name}
                       </span>
                       <span className={`status status-${job.status}`}>{STATUS_LABEL[job.status]}</span>
                     </div>
+                    <label className="job-back-toggle">
+                      <input
+                        type="checkbox"
+                        checked={job.isBackView === true}
+                        disabled={isRunning}
+                        onChange={(e) => updateJob(job.id, { isBackView: e.target.checked })}
+                      />
+                      背面图（禁止翻正面）
+                    </label>
                     <div className="job-images">
                       <figure>
-                        <img src={job.previewObjectUrl} alt="原图" />
-                        <figcaption>原图</figcaption>
+                        <img src={job.previewObjectUrl} alt="目标图" />
+                        <figcaption>目标图</figcaption>
                       </figure>
                       <figure>
                         {job.resultDataUrl ? (
@@ -645,6 +734,13 @@ export default function App() {
                         <figcaption>换布后</figcaption>
                       </figure>
                     </div>
+                    {job.warnings && job.warnings.length > 0 ? (
+                      <ul className="job-warnings">
+                        {job.warnings.map((w) => (
+                          <li key={w.code}>{w.message}</li>
+                        ))}
+                      </ul>
+                    ) : null}
                     {job.error ? <div className="job-error">{job.error}</div> : null}
                     <div className="job-actions">
                       <button
@@ -669,8 +765,7 @@ export default function App() {
               </div>
             </section>
           ) : null}
-        </main>
-      </div>
+      </main>
     </div>
   )
 }

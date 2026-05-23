@@ -27,18 +27,36 @@ const PROMPT_FABRIC_RULES = `Fabric from image 1 (including solid / low-print cl
 const PROMPT_PRESERVE = `Preserve from image 2 (everything except garment cloth):
 - Background, props, accessories, shadows, crop, aspect ratio, and composition.
 - Model rule: no person in image 2 → no person in output; if a person exists → same identity, face, hair, pose (unchanged except cloth).
-- View rule: same angle and orientation (front/back/flat lay); never flip back to front.
-- Garment structure: same category, neckline, sleeves, hem, buttons, seams, and piece count — only the cloth surface material changes.`
+- View rule: same angle and orientation (front/back/flat lay); never flip back to front.`
+
+const PROMPT_GARMENT_STRUCTURE_LOCK = `GARMENT STRUCTURE LOCK — image 2 is the only authority for cut (mandatory):
+- Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short flutter sleeves stay short flutter — NOT puff, bell, or elbow unless image 2 has them), hem, seams, layers, and piece count.
+- Forbidden: redesigning or beautifying the garment; changing sleeve style or length; changing neckline or hem; importing cut, neckline, or silhouette from image 1.
+- Image 1 supplies textile (color/print/texture) ONLY — never garment pattern-making or sleeve shape from image 1.`
 
 const PROMPT_MULTI_TARGET = `Batch mode: image 1 fabric is shared — every output must show the identical textile (same colors and print).`
 
+/** 用户勾选「纯色布料」时追加 */
+export const PROMPT_SOLID_FABRIC = `SOLID FABRIC MODE — image 1 has little or no visible print:
+- Treat image 1 as a solid/tonal color swatch plus subtle weave or texture only.
+- Replace ALL garment cloth in image 2 with that exact solid color field; remove every print, floral, stripe, and motif from image 2 cloth completely.
+- Forbidden: keeping any pattern from image 2; "matching" image 2's old print; partial tint while leaving motifs visible.
+- Still obey GARMENT STRUCTURE LOCK: change color/texture on cloth only — do NOT change sleeve type, neckline, hem, or silhouette.
+- Non-fabric pixels in image 2 stay unchanged.`
+
 /** 默认追加说明（简短中文，强化「必须换布」） */
 export const DEFAULT_PROMPT_SUFFIX =
-  '【必做】第1张图的布面颜色/花纹/肌理必须完整替换第2张图所有衣服布面；保留目标图原印花是错误的。第1张若无印花则按纯色/肌理替换。除衣服布面外，目标图其余内容保持不变。'
+  '【必做】第1张图的布面颜色/花纹/肌理必须完整替换第2张图所有衣服布面；保留目标图原印花是错误的。第1张若无印花则按纯色/肌理替换。版型、袖型、领型、裁剪必须与目标图一致，只换布面。除衣服布面外，目标图其余内容保持不变。'
 
 /** 布料换花主提示词；可与用户附加说明拼接 */
 export function buildFabricTransferPrompt(multiTarget = false): string {
-  const parts = [PROMPT_PRIMARY_TASK, PROMPT_IMAGE_ROLES, PROMPT_FABRIC_RULES, PROMPT_PRESERVE]
+  const parts = [
+    PROMPT_PRIMARY_TASK,
+    PROMPT_IMAGE_ROLES,
+    PROMPT_FABRIC_RULES,
+    PROMPT_GARMENT_STRUCTURE_LOCK,
+    PROMPT_PRESERVE,
+  ]
   if (multiTarget) parts.push(PROMPT_MULTI_TARGET)
   return parts.join('\n\n')
 }
@@ -49,10 +67,13 @@ export const STORAGE_KEY_PROMPT = 'clothing_tool_prompt_extra'
 export const STORAGE_KEY_SIZE = 'clothing_tool_size'
 export const STORAGE_KEY_ASPECT = 'clothing_tool_aspect_ratio'
 export const STORAGE_KEY_FOLLOW_TARGET_ASPECT = 'clothing_tool_follow_target_aspect'
+export const STORAGE_KEY_SOLID_FABRIC = 'clothing_tool_solid_fabric'
+export const STORAGE_KEY_USE_2K = 'clothing_tool_use_2k'
 
 /** 默认竖版上架图比例（多数模特图为 3:4） */
 export const DEFAULT_ASPECT_RATIO = '3:4'
 export const DEFAULT_SIZE = '1024x1536'
+export const DEFAULT_SIZE_2K = '2048x3072'
 
 export const SIZE_OPTIONS = [
   '1024x1024',
@@ -60,6 +81,15 @@ export const SIZE_OPTIONS = [
   '1536x1024',
   '1792x1024',
   '1024x1792',
+]
+
+/** 2K 输出尺寸（需网关支持；约为 1K 的 2 倍边长） */
+export const SIZE_OPTIONS_2K = [
+  '2048x2048',
+  '2048x3072',
+  '3072x2048',
+  '3584x2048',
+  '2048x3584',
 ]
 
 export const ASPECT_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9']

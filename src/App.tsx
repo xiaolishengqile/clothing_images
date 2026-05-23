@@ -10,14 +10,19 @@ import {
   DEFAULT_API_BASE,
   DEFAULT_MODEL,
   DEFAULT_SIZE,
+  DEFAULT_SIZE_2K,
   MAX_BATCH_CONCURRENCY,
+  PROMPT_SOLID_FABRIC,
   SIZE_OPTIONS,
+  SIZE_OPTIONS_2K,
   STORAGE_KEY_ASPECT,
   STORAGE_KEY_BASE,
   STORAGE_KEY_FOLLOW_TARGET_ASPECT,
   STORAGE_KEY_PROMPT,
   STORAGE_KEY_SIZE,
+  STORAGE_KEY_SOLID_FABRIC,
   STORAGE_KEY_TOKEN,
+  STORAGE_KEY_USE_2K,
 } from './lib/constants'
 import { getImageFilesFromDataTransfer, readFileAsDataURL } from './lib/files'
 import { closestAspectLabel, getImageDimensions, sizeForAspect } from './lib/imageAspect'
@@ -30,6 +35,11 @@ import './App.css'
 
 type JobStatus = 'queued' | 'running' | 'done' | 'error'
 type PasteTarget = 'fabric' | 'target'
+
+interface ImagePreview {
+  src: string
+  label: string
+}
 
 const STATUS_LABEL: Record<JobStatus, string> = {
   queued: '等待',
@@ -89,9 +99,16 @@ export default function App() {
   const [followTargetAspect, setFollowTargetAspect] = useState(
     () => localStorage.getItem(STORAGE_KEY_FOLLOW_TARGET_ASPECT) !== '0',
   )
+  const [isSolidFabric, setIsSolidFabric] = useState(
+    () => localStorage.getItem(STORAGE_KEY_SOLID_FABRIC) === '1',
+  )
+  const [use2kOutput, setUse2kOutput] = useState(() => localStorage.getItem(STORAGE_KEY_USE_2K) === '1')
+
+  const activeSizeOptions = use2kOutput ? SIZE_OPTIONS_2K : SIZE_OPTIONS
 
   const [fabricSource, setFabricSource] = useState<FabricSource | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
+  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null)
   const addedSeqRef = useRef(0)
   const [isRunning, setIsRunning] = useState(false)
   const [targetDragOver, setTargetDragOver] = useState(false)
@@ -100,6 +117,7 @@ export default function App() {
   const cancelRef = useRef(false)
   const pasteTargetRef = useRef<PasteTarget>('fabric')
   const abortRef = useRef<AbortController | null>(null)
+  const advancedDetailsRef = useRef<HTMLDetailsElement>(null)
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_BASE, apiBase)
@@ -120,8 +138,27 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_FOLLOW_TARGET_ASPECT, followTargetAspect ? '1' : '0')
   }, [followTargetAspect])
   useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_SOLID_FABRIC, isSolidFabric ? '1' : '0')
+  }, [isSolidFabric])
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_USE_2K, use2kOutput ? '1' : '0')
+  }, [use2kOutput])
+  useEffect(() => {
+    const opts = use2kOutput ? SIZE_OPTIONS_2K : SIZE_OPTIONS
+    const defaultSize = use2kOutput ? DEFAULT_SIZE_2K : DEFAULT_SIZE
+    setSize((prev) => (opts.includes(prev) ? prev : defaultSize))
+  }, [use2kOutput])
+  useEffect(() => {
     pasteTargetRef.current = pasteTarget
   }, [pasteTarget])
+  useEffect(() => {
+    if (!imagePreview) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setImagePreview(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [imagePreview])
 
   const jobStats = useMemo(() => {
     let done = 0
@@ -272,6 +309,7 @@ export default function App() {
     const fullPrompt = [
       buildFabricTransferPrompt(queue.length > 1),
       DEFAULT_PROMPT_SUFFIX,
+      isSolidFabric ? PROMPT_SOLID_FABRIC : '',
       promptExtra.trim(),
     ]
       .filter(Boolean)
@@ -304,7 +342,7 @@ export default function App() {
         if (followTargetAspect) {
           const { width, height } = await getImageDimensions(job.file)
           jobAspect = closestAspectLabel(width, height)
-          jobSize = sizeForAspect(jobAspect, size)
+          jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
         }
 
         const jobPromptSuffix = buildPerJobPromptSuffix(job.warnings ?? [], job.isBackView === true)
@@ -358,11 +396,13 @@ export default function App() {
     encodeImage,
     fabricSource,
     followTargetAspect,
+    isSolidFabric,
     jobs,
     model,
     promptExtra,
     size,
     updateJob,
+    use2kOutput,
   ])
 
   const displayJobs = useMemo(() => {
@@ -379,6 +419,10 @@ export default function App() {
   }, [jobs])
 
   const canStart = Boolean(fabricSource && jobs.length > 0 && apiToken.trim())
+
+  const openImagePreview = (src: string, label: string) => {
+    setImagePreview({ src, label })
+  }
 
   const downloadOne = (job: Job) => {
     if (!job.resultDataUrl) return
@@ -431,7 +475,7 @@ export default function App() {
           <span className="toolbar-hint">只保存在本机浏览器</span>
         </div>
 
-        <details className="settings-advanced toolbar-advanced">
+        <details ref={advancedDetailsRef} className="settings-advanced toolbar-advanced">
           <summary>高级选项</summary>
           <div className="settings-advanced-body toolbar-advanced-body">
             <div className="toolbar-advanced-grid">
@@ -457,14 +501,17 @@ export default function App() {
                 />
               </div>
               <div className="field">
-                <label htmlFor="size">输出尺寸{followTargetAspect ? '（自动）' : ''}</label>
+                <label htmlFor="size">
+                  输出尺寸{followTargetAspect ? '（自动）' : ''}
+                  {use2kOutput ? ' · 2K' : ''}
+                </label>
                 <select
                   id="size"
                   value={size}
                   disabled={followTargetAspect}
                   onChange={(e) => setSize(e.target.value)}
                 >
-                  {SIZE_OPTIONS.map((s) => (
+                  {activeSizeOptions.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
@@ -485,6 +532,16 @@ export default function App() {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="field field-span2 field-checkbox">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={use2kOutput}
+                    onChange={(e) => setUse2kOutput(e.target.checked)}
+                  />
+                  2K 高清输出（更慢、费用更高；若网关不支持会报错）
+                </label>
               </div>
               <div className="field field-span2 field-checkbox">
                 <label>
@@ -551,6 +608,15 @@ export default function App() {
             <p className="step-desc">
               这一张只提供<strong>花纹 + 颜色</strong>来源，系统从中提取布面花色。推荐平铺布料特写；若用穿着照，只取身上布面，不会带入模特，也不会把裙子版型套到目标图上。
             </p>
+            <label className="job-back-toggle fabric-solid-toggle">
+              <input
+                type="checkbox"
+                checked={isSolidFabric}
+                disabled={isRunning}
+                onChange={(e) => setIsSolidFabric(e.target.checked)}
+              />
+              纯色布料（无印花，按颜色+肌理替换）
+            </label>
             <ul className="tip-list">
               <li>换另一款布时，先点「重新选择」换掉布料图，并建议清空右侧目标图后重传</li>
               <li>目标图无模特时（平铺/挂拍等），结果也不会出现模特；有模特时，长相、姿势、版型均不变，只换布面花色</li>
@@ -559,7 +625,14 @@ export default function App() {
             <div className="upload-card">
               <div className={`preview-box${fabricSource ? '' : ' empty'}`}>
                 {fabricSource ? (
-                  <img src={fabricSource.previewObjectUrl} alt="布料图预览" />
+                  <button
+                    type="button"
+                    className="preview-image-btn"
+                    title="点击查看大图"
+                    onClick={() => openImagePreview(fabricSource.previewObjectUrl, '布料图')}
+                  >
+                    <img src={fabricSource.previewObjectUrl} alt="布料图预览" />
+                  </button>
                 ) : (
                   <span className="preview-placeholder">点击右侧按钮或粘贴图片</span>
                 )}
@@ -719,12 +792,26 @@ export default function App() {
                     </label>
                     <div className="job-images">
                       <figure>
-                        <img src={job.previewObjectUrl} alt="目标图" />
+                        <button
+                          type="button"
+                          className="job-image-btn"
+                          title="点击查看大图"
+                          onClick={() => openImagePreview(job.previewObjectUrl, `目标图 — ${job.file.name}`)}
+                        >
+                          <img src={job.previewObjectUrl} alt="目标图" />
+                        </button>
                         <figcaption>目标图</figcaption>
                       </figure>
                       <figure>
                         {job.resultDataUrl ? (
-                          <img src={job.resultDataUrl} alt="换布后" />
+                          <button
+                            type="button"
+                            className="job-image-btn"
+                            title="点击查看大图"
+                            onClick={() => openImagePreview(job.resultDataUrl!, `换布后 — ${job.file.name}`)}
+                          >
+                            <img src={job.resultDataUrl} alt="换布后" />
+                          </button>
                         ) : (
                           <span className="result-placeholder">
                             {job.status === 'running' ? '生成中…' : job.status === 'error' ? '生成失败' : '等待生成'}
@@ -765,6 +852,26 @@ export default function App() {
             </section>
           ) : null}
       </main>
+
+      {imagePreview ? (
+        <div
+          className="image-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={imagePreview.label}
+          onClick={() => setImagePreview(null)}
+        >
+          <div className="image-lightbox-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="image-lightbox-head">
+              <span className="image-lightbox-title">{imagePreview.label}</span>
+              <button type="button" className="btn btn-ghost image-lightbox-close" onClick={() => setImagePreview(null)}>
+                关闭
+              </button>
+            </div>
+            <img src={imagePreview.src} alt={imagePreview.label} className="image-lightbox-img" />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

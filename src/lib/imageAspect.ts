@@ -40,7 +40,7 @@ export function closestAspectLabel(
   return best
 }
 
-/** 与画面比例对应的 API size（在网关支持的 SIZE_OPTIONS 中取最接近的竖/横图尺寸） */
+/** 与画面比例对应的 API size（1K） */
 export const ASPECT_TO_SIZE: Record<string, string> = {
   '1:1': '1024x1024',
   '2:3': '1024x1536',
@@ -53,6 +53,20 @@ export const ASPECT_TO_SIZE: Record<string, string> = {
   '16:9': '1792x1024',
 }
 
-export function sizeForAspect(aspect: string, fallback = '1024x1536'): string {
-  return ASPECT_TO_SIZE[aspect] ?? fallback
+/** 与画面比例对应的 API size（2K） */
+export const ASPECT_TO_SIZE_2K: Record<string, string> = {
+  '1:1': '2048x2048',
+  '2:3': '2048x3072',
+  '3:2': '3072x2048',
+  '3:4': '2048x3072',
+  '4:3': '3072x2048',
+  '4:5': '2048x3072',
+  '5:4': '3072x2048',
+  '9:16': '2048x3584',
+  '16:9': '3584x2048',
+}
+
+export function sizeForAspect(aspect: string, fallback = '1024x1536', use2k = false): string {
+  const map = use2k ? ASPECT_TO_SIZE_2K : ASPECT_TO_SIZE
+  return map[aspect] ?? fallback
 }

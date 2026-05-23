@@ -115,12 +115,9 @@ export async function checkTargetImage(file: File): Promise<TargetImageCheckResu
   return { warnings }
 }
 
-const PROMPT_BACK_VIEW_LOCK = `BACK VIEW MANDATORY — image 2 is a BACK-FACING product shot:
-- Output MUST keep the EXACT same back-facing camera angle, pose, and framing as image 2.
-- Show ONLY the back of the garment: back neckline, back yoke, back seams, back of sleeves — exactly as in image 2.
-- Forbidden: rotating to front view, showing front V-neck, front buttons, front-facing flat lay, or any front garment details not visible in image 2.
-- Forbidden: mirroring/flipping to reveal the front. The customer must still see the BACK of the product.
-- Change ONLY fabric print/colors on back surfaces visible in image 2; all other pixels unchanged.`
+const PROMPT_BACK_VIEW_LOCK = `BACK VIEW: image 2 is back-facing — output stays back-facing with the same pose and framing.
+Show only the back of the garment (back neck, back yoke, back sleeves). Forbidden: flip to front or mirror to reveal the front.
+Still replace back cloth with image 1 fabric.`
 
 /** 按检测结果为单张任务追加英文约束 */
 export function buildPerJobPromptSuffix(
@@ -134,18 +131,16 @@ export function buildPerJobPromptSuffix(
   if (warnings.length === 0 && parts.length === 0) return ''
   if (warnings.some((w) => w.code === 'possible_swatch')) {
     parts.push(
-      'SWATCH TARGET: Image 2 is fabric-only or swatch-like. Forbidden: inventing flat-lay outfits, extra garments, models, or new layouts. Only apply image 1 textile to cloth already visible in image 2 — if image 2 is only a swatch, change ONLY that swatch surface.',
+      'Image 2 looks like a swatch: apply image 1 textile only to cloth already visible; do not invent outfits, models, or new layouts.',
     )
   }
   if (warnings.some((w) => w.code === 'partial_crop')) {
     parts.push(
-      'CROP LOCK: Identical crop, zoom, and framing as image 2. Forbidden: outpainting, zooming out, completing partial garment to full garment, adding missing sleeves/hem/body.',
+      'Keep identical crop and framing as image 2; no outpainting or completing partial garments.',
     )
   }
   if (warnings.some((w) => w.code === 'low_resolution')) {
-    parts.push(
-      'No upscaling reinterpretation: preserve image 2 sharpness and detail level; do not hallucinate new fine detail.',
-    )
+    parts.push('Preserve image 2 sharpness; do not upscale or invent fine detail.')
   }
   return parts.join('\n\n')
 }

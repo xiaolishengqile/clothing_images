@@ -170,10 +170,9 @@ export default function App() {
       }))
       setJobs((prev) => [...prev, ...newJobs])
       for (const job of newJobs) {
-        void checkTargetImage(job.file).then(({ warnings, suggestBackView }) => {
+        void checkTargetImage(job.file).then(({ warnings }) => {
           updateJob(job.id, {
             warnings: warnings.length > 0 ? warnings : undefined,
-            isBackView: suggestBackView ? true : undefined,
           })
         })
       }
@@ -606,7 +605,7 @@ export default function App() {
               <h2>上传「要换布的照片」</h2>
             </div>
             <p className="step-desc">
-              请传<strong>完整商品图</strong>（平铺/模特/挂拍），勿传布样特写。可多张上传；背面、局部图易跑偏，上传后会自动提示风险。
+              请传<strong>完整商品图</strong>（平铺/模特/挂拍），勿传布样特写。可多张上传；若是<strong>背面图</strong>请在卡片上勾选；局部图等风险会自动提示。
             </p>
 
             <div

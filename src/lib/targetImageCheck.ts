@@ -4,9 +4,6 @@ export type TargetImageWarningCode =
   | 'possible_swatch'
   | 'partial_crop'
   | 'low_resolution'
-  | 'back_view'
-
-const BACK_VIEW_NAME_RE = /背面|后背|后面|后片|back|rear|behind/i
 
 export interface TargetImageWarning {
   code: TargetImageWarningCode
@@ -63,61 +60,8 @@ async function looksLikeEdgeToEdgeFabric(file: File): Promise<boolean> {
   return borderFabric / borderTotal > 0.82
 }
 
-function isSkinLike(r: number, g: number, b: number): boolean {
-  const max = Math.max(r, g, b)
-  const min = Math.min(r, g, b)
-  if (max - min < 15) return false
-  return r > 95 && g > 40 && b > 20 && r > g && r > b && r - g > 12
-}
-
-/** 文件名是否暗示背面图 */
-export function guessBackViewFromFileName(name: string): boolean {
-  return BACK_VIEW_NAME_RE.test(name)
-}
-
-/**
- * 启发式：画面上方中心少见肤色、以服装为主 → 可能是背面/无正脸
- */
-async function looksLikeBackGarmentShot(file: File): Promise<boolean> {
-  const img = await loadImageElement(file)
-  const w = 80
-  const h = Math.round(80 * (img.naturalHeight / img.naturalWidth))
-  const canvas = document.createElement('canvas')
-  canvas.width = w
-  canvas.height = h
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return false
-  ctx.drawImage(img, 0, 0, w, h)
-  const { data } = ctx.getImageData(0, 0, w, h)
-
-  let topSkin = 0
-  let topFabric = 0
-  let topTotal = 0
-  const topEnd = Math.floor(h * 0.42)
-  const xStart = Math.floor(w * 0.22)
-  const xEnd = Math.floor(w * 0.78)
-
-  for (let y = 0; y < topEnd; y++) {
-    for (let x = xStart; x < xEnd; x++) {
-      const i = (y * w + x) * 4
-      const r = data[i]
-      const g = data[i + 1]
-      const b = data[i + 2]
-      topTotal++
-      if (isSkinLike(r, g, b)) topSkin++
-      else if (!isBackgroundPixel(r, g, b)) topFabric++
-    }
-  }
-  if (topTotal === 0) return false
-  const skinRatio = topSkin / topTotal
-  const fabricRatio = topFabric / topTotal
-  return skinRatio < 0.012 && fabricRatio > 0.28
-}
-
 export interface TargetImageCheckResult {
   warnings: TargetImageWarning[]
-  /** 建议按背面图生成（可用户在卡片上取消勾选） */
-  suggestBackView: boolean
 }
 
 export async function checkTargetImage(file: File): Promise<TargetImageCheckResult> {
@@ -168,23 +112,7 @@ export async function checkTargetImage(file: File): Promise<TargetImageCheckResu
     /* 分析失败时仅依赖尺寸启发 */
   }
 
-  let suggestBackView = guessBackViewFromFileName(file.name)
-  if (!suggestBackView) {
-    try {
-      suggestBackView = await looksLikeBackGarmentShot(file)
-    } catch {
-      suggestBackView = false
-    }
-  }
-
-  if (suggestBackView) {
-    warnings.push({
-      code: 'back_view',
-      message: '背面图：已锁定背面视角',
-    })
-  }
-
-  return { warnings, suggestBackView }
+  return { warnings }
 }
 
 const PROMPT_BACK_VIEW_LOCK = `BACK VIEW MANDATORY — image 2 is a BACK-FACING product shot:
@@ -200,7 +128,7 @@ export function buildPerJobPromptSuffix(
   isBackView = false,
 ): string {
   const parts: string[] = []
-  if (isBackView || warnings.some((w) => w.code === 'back_view')) {
+  if (isBackView) {
     parts.push(PROMPT_BACK_VIEW_LOCK)
   }
   if (warnings.length === 0 && parts.length === 0) return ''

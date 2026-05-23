@@ -253,6 +253,18 @@
   padding: 0.85rem;
 }
 
+.settings-advanced-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.settings-advanced-collapse {
+  font-size: 0.8125rem;
+}
+
 .row2 {
   display: grid;
   grid-template-columns: 1fr 1fr;

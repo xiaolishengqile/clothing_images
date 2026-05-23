@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import JSZip from 'jszip'
 import { saveAs } from 'file-saver'
 import { postImagesGenerations, type GenerationsBody } from './api/imagesGenerations'
+import { postImagesEdits } from './api/imagesEdits'
 import {
   ASPECT_OPTIONS,
   buildFabricTransferPrompt,
+  buildFabricTransferPromptForEdits,
   DEFAULT_ASPECT_RATIO,
   DEFAULT_PROMPT_SUFFIX,
   DEFAULT_API_BASE,
@@ -13,6 +15,7 @@ import {
   DEFAULT_SIZE_2K,
   MAX_BATCH_CONCURRENCY,
   PROMPT_SOLID_FABRIC,
+  PROMPT_SOLID_FABRIC_EDIT,
   SIZE_OPTIONS,
   SIZE_OPTIONS_2K,
   STORAGE_KEY_ASPECT,
@@ -23,6 +26,7 @@ import {
   STORAGE_KEY_SOLID_FABRIC,
   STORAGE_KEY_TOKEN,
   STORAGE_KEY_USE_2K,
+  STORAGE_KEY_USE_EDITS,
 } from './lib/constants'
 import { getImageFilesFromDataTransfer, readFileAsDataURL } from './lib/files'
 import { closestAspectLabel, getImageDimensions, sizeForAspect } from './lib/imageAspect'
@@ -72,6 +76,8 @@ interface Job {
   warnings?: TargetImageWarning[]
   /** 背面拍摄：生成时强制保持背面视角 */
   isBackView?: boolean
+  /** 局部/特写：强制锁构图，禁止补全 */
+  isStrictFraming?: boolean
 }
 
 function safeBaseName(name: string): string {
@@ -103,6 +109,10 @@ export default function App() {
     () => localStorage.getItem(STORAGE_KEY_SOLID_FABRIC) === '1',
   )
   const [use2kOutput, setUse2kOutput] = useState(() => localStorage.getItem(STORAGE_KEY_USE_2K) === '1')
+  const [useEditsApi, setUseEditsApi] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY_USE_EDITS)
+    return stored === null ? true : stored === '1'
+  })
 
   const activeSizeOptions = use2kOutput ? SIZE_OPTIONS_2K : SIZE_OPTIONS
 
@@ -143,6 +153,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_USE_2K, use2kOutput ? '1' : '0')
   }, [use2kOutput])
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_USE_EDITS, useEditsApi ? '1' : '0')
+  }, [useEditsApi])
   useEffect(() => {
     const opts = use2kOutput ? SIZE_OPTIONS_2K : SIZE_OPTIONS
     const defaultSize = use2kOutput ? DEFAULT_SIZE_2K : DEFAULT_SIZE
@@ -306,22 +319,27 @@ export default function App() {
     cancelRef.current = false
     setIsRunning(true)
 
+    const buildPrompt = useEditsApi ? buildFabricTransferPromptForEdits : buildFabricTransferPrompt
+    const solidPrompt = useEditsApi ? PROMPT_SOLID_FABRIC_EDIT : PROMPT_SOLID_FABRIC
+
     const fullPrompt = [
-      buildFabricTransferPrompt(queue.length > 1),
+      buildPrompt(queue.length > 1),
       DEFAULT_PROMPT_SUFFIX,
-      isSolidFabric ? PROMPT_SOLID_FABRIC : '',
+      isSolidFabric ? solidPrompt : '',
       promptExtra.trim(),
     ]
       .filter(Boolean)
       .join('\n\n')
 
-    let fabricPayload: string
-    try {
-      fabricPayload = await encodeImage(fabricSource.file)
-    } catch (e) {
-      setIsRunning(false)
-      alert(e instanceof Error ? e.message : String(e))
-      return
+    let fabricPayload: string | undefined
+    if (!useEditsApi) {
+      try {
+        fabricPayload = await encodeImage(fabricSource.file)
+      } catch (e) {
+        setIsRunning(false)
+        alert(e instanceof Error ? e.message : String(e))
+        return
+      }
     }
 
     const runOne = async (job: Job) => {
@@ -335,8 +353,6 @@ export default function App() {
       const ac = new AbortController()
       abortRef.current = ac
       try {
-        const targetPayload = await encodeImage(job.file)
-
         let jobAspect = aspectRatio
         let jobSize = size
         if (followTargetAspect) {
@@ -345,18 +361,41 @@ export default function App() {
           jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
         }
 
-        const jobPromptSuffix = buildPerJobPromptSuffix(job.warnings ?? [], job.isBackView === true)
+        const jobPromptSuffix = buildPerJobPromptSuffix({
+          warnings: job.warnings ?? [],
+          isBackView: job.isBackView === true,
+          isStrictFraming: job.isStrictFraming === true,
+          forEdits: useEditsApi,
+        })
         const prompt = [fullPrompt, jobPromptSuffix].filter(Boolean).join('\n\n')
 
-        const genBody: GenerationsBody = {
-          model: model.trim() || DEFAULT_MODEL,
-          prompt,
-          size: jobSize,
-          aspect_ratio: jobAspect,
-          image: [fabricPayload, targetPayload],
+        let imageDataUrl: string
+        if (useEditsApi) {
+          const result = await postImagesEdits(
+            base,
+            token,
+            {
+              model: model.trim() || DEFAULT_MODEL,
+              prompt,
+              size: jobSize,
+              aspect_ratio: jobAspect,
+              images: [job.file, fabricSource.file],
+            },
+            ac.signal,
+          )
+          imageDataUrl = result.imageDataUrl
+        } else {
+          const targetPayload = await encodeImage(job.file)
+          const genBody: GenerationsBody = {
+            model: model.trim() || DEFAULT_MODEL,
+            prompt,
+            size: jobSize,
+            aspect_ratio: jobAspect,
+            image: [fabricPayload!, targetPayload],
+          }
+          const result = await postImagesGenerations(base, token, genBody, ac.signal)
+          imageDataUrl = result.imageDataUrl
         }
-
-        const { imageDataUrl } = await postImagesGenerations(base, token, genBody, ac.signal)
 
         updateJob(job.id, {
           status: 'done',
@@ -403,6 +442,7 @@ export default function App() {
     size,
     updateJob,
     use2kOutput,
+    useEditsApi,
   ])
 
   const displayJobs = useMemo(() => {
@@ -547,6 +587,16 @@ export default function App() {
                 <label>
                   <input
                     type="checkbox"
+                    checked={useEditsApi}
+                    onChange={(e) => setUseEditsApi(e.target.checked)}
+                  />
+                  编辑接口（保构图，推荐）— 使用 /v1/images/edits；若网关不支持可关闭改用生成接口
+                </label>
+              </div>
+              <div className="field field-span2 field-checkbox">
+                <label>
+                  <input
+                    type="checkbox"
                     checked={followTargetAspect}
                     onChange={(e) => setFollowTargetAspect(e.target.checked)}
                   />
@@ -569,6 +619,17 @@ export default function App() {
             ) : (
               <p className="field-hint">本地若报跨域，接口地址可填 http://localhost:5173/t8proxy</p>
             )}
+            <div className="settings-advanced-footer">
+              <button
+                type="button"
+                className="btn btn-ghost settings-advanced-collapse"
+                onClick={() => {
+                  if (advancedDetailsRef.current) advancedDetailsRef.current.open = false
+                }}
+              >
+                收起
+              </button>
+            </div>
           </div>
         </details>
       </section>
@@ -789,6 +850,15 @@ export default function App() {
                         onChange={(e) => updateJob(job.id, { isBackView: e.target.checked })}
                       />
                       背面图（禁止翻正面）
+                    </label>
+                    <label className="job-back-toggle">
+                      <input
+                        type="checkbox"
+                        checked={job.isStrictFraming === true}
+                        disabled={isRunning}
+                        onChange={(e) => updateJob(job.id, { isStrictFraming: e.target.checked })}
+                      />
+                      局部/特写（严格锁构图）
                     </label>
                     <div className="job-images">
                       <figure>

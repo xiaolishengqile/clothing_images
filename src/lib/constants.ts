@@ -29,6 +29,60 @@ const PROMPT_PRESERVE = `Preserve from image 2 (everything except garment cloth)
 - Model rule: no person in image 2 → no person in output; if a person exists → same identity, face, hair, pose (unchanged except cloth).
 - View rule: same angle and orientation (front/back/flat lay); never flip back to front.`
 
+/** 构图锁定：防止局部图补全为全身、加配饰、改取景 */
+export const PROMPT_FRAMING_LOCK = `FRAMING LOCK — image 2 canvas is sacred (mandatory):
+- Output MUST match image 2 pixel-for-pixel in layout: same crop, zoom, margins, subject scale, and visible body parts.
+- If image 2 shows only upper torso / partial garment / close-up — output stays that exact partial view. Forbidden: outpainting, zooming out, completing missing limbs, or turning partial into full-body.
+- Forbidden: adding shoes, bags, jewelry, extra props, or background elements not in image 2.
+- Forbidden: changing camera distance or reframing. Only garment cloth texture/color may change.`
+
+const PROMPT_EDIT_IMAGE_ROLES = `Edit mode — image order:
+1. FIRST image — product photo to edit (base canvas). Defines scene, pose, framing, and garment construction. Preserve this layout exactly.
+2. SECOND image — master fabric / SKU swatch. Read cloth color, print, and texture ONLY from garment surfaces in this image.`
+
+/** 编辑接口专用提示词（第一张=目标图，第二张=布料图） */
+export function buildFabricTransferPromptForEdits(multiTarget = false): string {
+  const primaryTask = `TASK — garment fabric replacement on the base image (mandatory):
+Replace ALL visible garment cloth in the FIRST image with the textile from the SECOND image.
+The SECOND image = sole authority for cloth color, print, and surface texture.
+The FIRST image = scene template; ONLY garment cloth pixels may change.
+Output must clearly show the FIRST image's garments wearing the SECOND image's fabric.
+Keeping the FIRST image's original print or colors on cloth is incorrect.`
+
+  const fabricRules = PROMPT_FABRIC_RULES.replace(/image 1/g, 'the SECOND image').replace(
+    /image 2/g,
+    'the FIRST image',
+  )
+  const structureLock = PROMPT_GARMENT_STRUCTURE_LOCK.replace(/image 2/g, 'the FIRST image').replace(
+    /image 1/g,
+    'the SECOND image',
+  )
+  const framingLock = PROMPT_FRAMING_LOCK.replace(/image 2/g, 'the FIRST image')
+  const preserve = PROMPT_PRESERVE.replace(/image 2/g, 'the FIRST image').replace(
+    /image 1/g,
+    'the SECOND image',
+  )
+
+  const parts = [
+    primaryTask,
+    PROMPT_EDIT_IMAGE_ROLES,
+    fabricRules,
+    structureLock,
+    framingLock,
+    preserve,
+  ]
+  if (multiTarget) {
+    parts.push('Batch mode: the SECOND image fabric is shared — every output must show the identical textile.')
+  }
+  return parts.join('\n\n')
+}
+
+/** 纯色模式 — 编辑接口 */
+export const PROMPT_SOLID_FABRIC_EDIT = `SOLID FABRIC MODE — the SECOND image has little or no visible print:
+- Treat the SECOND image as a solid/tonal color swatch plus subtle weave or texture only.
+- Replace ALL garment cloth in the FIRST image with that exact solid color field; remove every print from the FIRST image cloth.
+- Still obey GARMENT STRUCTURE LOCK and FRAMING LOCK. Non-fabric pixels stay unchanged.`
+
 const PROMPT_GARMENT_STRUCTURE_LOCK = `GARMENT STRUCTURE LOCK — image 2 is the only authority for cut (mandatory):
 - Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short flutter sleeves stay short flutter — NOT puff, bell, or elbow unless image 2 has them), hem, seams, layers, and piece count.
 - Forbidden: redesigning or beautifying the garment; changing sleeve style or length; changing neckline or hem; importing cut, neckline, or silhouette from image 1.
@@ -55,6 +109,7 @@ export function buildFabricTransferPrompt(multiTarget = false): string {
     PROMPT_IMAGE_ROLES,
     PROMPT_FABRIC_RULES,
     PROMPT_GARMENT_STRUCTURE_LOCK,
+    PROMPT_FRAMING_LOCK,
     PROMPT_PRESERVE,
   ]
   if (multiTarget) parts.push(PROMPT_MULTI_TARGET)
@@ -69,6 +124,8 @@ export const STORAGE_KEY_ASPECT = 'clothing_tool_aspect_ratio'
 export const STORAGE_KEY_FOLLOW_TARGET_ASPECT = 'clothing_tool_follow_target_aspect'
 export const STORAGE_KEY_SOLID_FABRIC = 'clothing_tool_solid_fabric'
 export const STORAGE_KEY_USE_2K = 'clothing_tool_use_2k'
+/** 默认开启：编辑接口更利于保构图 */
+export const STORAGE_KEY_USE_EDITS = 'clothing_tool_use_edits'
 
 /** 默认竖版上架图比例（多数模特图为 3:4） */
 export const DEFAULT_ASPECT_RATIO = '3:4'

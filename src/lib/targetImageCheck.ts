@@ -1,8 +1,10 @@
 import { getImageDimensions } from './imageAspect'
+import { PROMPT_FRAMING_LOCK } from './constants'
 
 export type TargetImageWarningCode =
   | 'possible_swatch'
   | 'partial_crop'
+  | 'tight_crop'
   | 'low_resolution'
 
 export interface TargetImageWarning {
@@ -60,6 +62,47 @@ async function looksLikeEdgeToEdgeFabric(file: File): Promise<boolean> {
   return borderFabric / borderTotal > 0.82
 }
 
+/** 主体是否贴近画面边缘（局部/特写构图，易被模型补全） */
+async function looksLikeTightCrop(file: File): Promise<boolean> {
+  const img = await loadImageElement(file)
+  const size = 96
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return false
+  ctx.drawImage(img, 0, 0, size, size)
+  const { data } = ctx.getImageData(0, 0, size, size)
+
+  const edgeBand = 4
+  let edgeTotal = 0
+  let edgeSubject = 0
+  let centerTotal = 0
+  let centerSubject = 0
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4
+      const isBg = isBackgroundPixel(data[i], data[i + 1], data[i + 2])
+      const onEdge =
+        x < edgeBand || x >= size - edgeBand || y < edgeBand || y >= size - edgeBand
+      if (onEdge) {
+        edgeTotal++
+        if (!isBg) edgeSubject++
+      } else {
+        centerTotal++
+        if (!isBg) centerSubject++
+      }
+    }
+  }
+  if (edgeTotal === 0 || centerTotal === 0) return false
+
+  const edgeFill = edgeSubject / edgeTotal
+  const centerFill = centerSubject / centerTotal
+  // 边缘也有大量主体 + 中心主体占比高 → 特写/裁切构图
+  return edgeFill > 0.38 && centerFill > 0.42 && edgeFill > centerFill * 0.55
+}
+
 export interface TargetImageCheckResult {
   warnings: TargetImageWarning[]
 }
@@ -108,6 +151,13 @@ export async function checkTargetImage(file: File): Promise<TargetImageCheckResu
         })
       }
     }
+
+    if (!warnings.some((w) => w.code === 'partial_crop') && (await looksLikeTightCrop(file))) {
+      warnings.push({
+        code: 'tight_crop',
+        message: '特写/裁切构图，模型可能补全为全身或加配饰',
+      })
+    }
   } catch {
     /* 分析失败时仅依赖尺寸启发 */
   }
@@ -115,32 +165,62 @@ export async function checkTargetImage(file: File): Promise<TargetImageCheckResu
   return { warnings }
 }
 
-const PROMPT_BACK_VIEW_LOCK = `BACK VIEW: image 2 is back-facing — output stays back-facing with the same pose and framing.
+const PROMPT_BACK_VIEW_LOCK = `BACK VIEW: the target image is back-facing — output stays back-facing with the same pose and framing.
 Show only the back of the garment (back neck, back yoke, back sleeves). Forbidden: flip to front or mirror to reveal the front.
-Still replace back cloth with image 1 fabric.`
+Still replace back cloth with the fabric reference image.`
+
+const PROMPT_BACK_VIEW_LOCK_EDIT = PROMPT_BACK_VIEW_LOCK.replace(
+  'the target image',
+  'the FIRST image (base)',
+).replace('the fabric reference image', 'the SECOND image (fabric reference)')
+
+const PROMPT_STRICT_FRAMING = `${PROMPT_FRAMING_LOCK}
+
+STRICT FRAMING MODE (user enabled): treat the target as a fixed crop — zero tolerance for reframing, zoom, or outpainting.`
+
+const PROMPT_STRICT_FRAMING_EDIT = PROMPT_STRICT_FRAMING.replace(/image 2/g, 'the FIRST image')
+
+export interface BuildPerJobPromptOptions {
+  warnings: TargetImageWarning[]
+  isBackView?: boolean
+  isStrictFraming?: boolean
+  /** 编辑接口：第一张=目标，第二张=布 */
+  forEdits?: boolean
+}
 
 /** 按检测结果为单张任务追加英文约束 */
 export function buildPerJobPromptSuffix(
-  warnings: TargetImageWarning[],
-  isBackView = false,
+  warningsOrOptions: TargetImageWarning[] | BuildPerJobPromptOptions,
+  isBackViewLegacy = false,
 ): string {
+  const opts: BuildPerJobPromptOptions = Array.isArray(warningsOrOptions)
+    ? { warnings: warningsOrOptions, isBackView: isBackViewLegacy }
+    : warningsOrOptions
+  const { warnings, isBackView = false, isStrictFraming = false, forEdits = false } = opts
+
   const parts: string[] = []
   if (isBackView) {
-    parts.push(PROMPT_BACK_VIEW_LOCK)
+    parts.push(forEdits ? PROMPT_BACK_VIEW_LOCK_EDIT : PROMPT_BACK_VIEW_LOCK)
   }
-  if (warnings.length === 0 && parts.length === 0) return ''
+  if (isStrictFraming) {
+    parts.push(forEdits ? PROMPT_STRICT_FRAMING_EDIT : PROMPT_STRICT_FRAMING)
+  }
+
+  const targetLabel = forEdits ? 'the FIRST image' : 'image 2'
+  const fabricLabel = forEdits ? 'the SECOND image' : 'image 1'
+
   if (warnings.some((w) => w.code === 'possible_swatch')) {
     parts.push(
-      'Image 2 looks like a swatch: apply image 1 textile only to cloth already visible; do not invent outfits, models, or new layouts.',
+      `${targetLabel} looks like a swatch: apply ${fabricLabel} textile only to cloth already visible; do not invent outfits, models, or new layouts.`,
     )
   }
-  if (warnings.some((w) => w.code === 'partial_crop')) {
+  if (warnings.some((w) => w.code === 'partial_crop' || w.code === 'tight_crop')) {
     parts.push(
-      'Keep identical crop and framing as image 2; no outpainting or completing partial garments.',
+      `Keep identical crop and framing as ${targetLabel}; no outpainting, no completing partial garments, no adding shoes/bags/accessories.`,
     )
   }
   if (warnings.some((w) => w.code === 'low_resolution')) {
-    parts.push('Preserve image 2 sharpness; do not upscale or invent fine detail.')
+    parts.push(`Preserve ${targetLabel} sharpness; do not upscale or invent fine detail.`)
   }
   return parts.join('\n\n')
 }

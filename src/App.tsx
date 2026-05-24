@@ -654,9 +654,6 @@ export default function App() {
               <span className="step-badge">第 1 步</span>
               <h2>上传「布料图」</h2>
             </div>
-            <p className="step-desc">
-              这一张只提供<strong>花纹 + 颜色</strong>来源，系统从中提取布面花色。推荐平铺布料特写；若用穿着照，只取身上布面，不会带入模特，也不会把裙子版型套到目标图上。
-            </p>
             <label className="job-back-toggle fabric-solid-toggle">
               <input
                 type="checkbox"
@@ -666,10 +663,6 @@ export default function App() {
               />
               纯色布料（无印花，按颜色+肌理替换）
             </label>
-            <ul className="tip-list">
-              <li>换另一款布时，先点「重新选择」换掉布料图，并建议清空右侧目标图后重传</li>
-              <li>目标图无模特时（平铺/挂拍等），结果也不会出现模特；有模特时，长相、姿势、版型均不变，只换布面花色</li>
-            </ul>
 
             <div className="upload-card">
               <div className={`preview-box${fabricSource ? '' : ' empty'}`}>

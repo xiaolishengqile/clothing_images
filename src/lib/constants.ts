@@ -57,6 +57,7 @@ Keeping the FIRST image's original print or colors on cloth is incorrect.`
     /image 1/g,
     'the SECOND image',
   )
+  const fitLock = PROMPT_GARMENT_FIT_LOCK.replace(/image 2/g, 'the FIRST image')
   const framingLock = PROMPT_FRAMING_LOCK.replace(/image 2/g, 'the FIRST image')
   const preserve = PROMPT_PRESERVE.replace(/image 2/g, 'the FIRST image').replace(
     /image 1/g,
@@ -68,6 +69,7 @@ Keeping the FIRST image's original print or colors on cloth is incorrect.`
     PROMPT_EDIT_IMAGE_ROLES,
     fabricRules,
     structureLock,
+    fitLock,
     framingLock,
     preserve,
   ]
@@ -81,12 +83,19 @@ Keeping the FIRST image's original print or colors on cloth is incorrect.`
 export const PROMPT_SOLID_FABRIC_EDIT = `SOLID FABRIC MODE — the SECOND image has little or no visible print:
 - Treat the SECOND image as a solid/tonal color swatch plus subtle weave or texture only.
 - Replace ALL garment cloth in the FIRST image with that exact solid color field; remove every print from the FIRST image cloth.
-- Still obey GARMENT STRUCTURE LOCK and FRAMING LOCK. Non-fabric pixels stay unchanged.`
+- Still obey GARMENT STRUCTURE LOCK, FIT LOCK, and FRAMING LOCK. Non-fabric pixels stay unchanged.`
 
 const PROMPT_GARMENT_STRUCTURE_LOCK = `GARMENT STRUCTURE LOCK — image 2 is the only authority for cut (mandatory):
-- Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short flutter sleeves stay short flutter — NOT puff, bell, or elbow unless image 2 has them), hem, seams, layers, and piece count.
+- Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short puff sleeves stay short puff — NOT slim bell or elbow unless image 2 has them), hem, seams, layers, and piece count.
 - Forbidden: redesigning or beautifying the garment; changing sleeve style or length; changing neckline or hem; importing cut, neckline, or silhouette from image 1.
 - Image 1 supplies textile (color/print/texture) ONLY — never garment pattern-making or sleeve shape from image 1.`
+
+/** 版型锁：松量、轮廓、腰线 — 只换布面纹理，不改穿着效果 */
+export const PROMPT_GARMENT_FIT_LOCK = `FIT / SILHOUETTE LOCK — image 2 is the only authority for fit and volume (mandatory):
+- Preserve EXACT fit from image 2: same ease, looseness, boxy vs fitted vs oversized, waist width, side-seam shape, shoulder width, bust/chest volume, garment length, hem width, and outer contour.
+- If image 2 is relaxed, loose, or boxy — output MUST stay equally relaxed/loose/boxy. If slightly fitted — stay only slightly fitted. Never "upgrade" the fit.
+- Forbidden: slimming, tapering the waist, cinching, narrowing sides, reducing volume, making the garment more tailored, more editorial, or more body-hugging.
+- Garment outline and drape must match image 2; ONLY cloth surface (color, print, weave) may change — not the shape the garment makes on the body or flat lay.`
 
 const PROMPT_MULTI_TARGET = `Batch mode: image 1 fabric is shared — every output must show the identical textile (same colors and print).`
 
@@ -95,12 +104,12 @@ export const PROMPT_SOLID_FABRIC = `SOLID FABRIC MODE — image 1 has little or 
 - Treat image 1 as a solid/tonal color swatch plus subtle weave or texture only.
 - Replace ALL garment cloth in image 2 with that exact solid color field; remove every print, floral, stripe, and motif from image 2 cloth completely.
 - Forbidden: keeping any pattern from image 2; "matching" image 2's old print; partial tint while leaving motifs visible.
-- Still obey GARMENT STRUCTURE LOCK: change color/texture on cloth only — do NOT change sleeve type, neckline, hem, or silhouette.
+- Still obey GARMENT STRUCTURE LOCK and FIT LOCK: change color/texture on cloth only — do NOT change sleeve type, neckline, hem, silhouette, or fit.
 - Non-fabric pixels in image 2 stay unchanged.`
 
 /** 默认追加说明（简短中文，强化「必须换布」） */
 export const DEFAULT_PROMPT_SUFFIX =
-  '【必做】第1张图的布面颜色/花纹/肌理必须完整替换第2张图所有衣服布面；保留目标图原印花是错误的。第1张若无印花则按纯色/肌理替换。版型、袖型、领型、裁剪必须与目标图一致，只换布面。除衣服布面外，目标图其余内容保持不变。'
+  '【必做】第1张图的布面颜色/花纹/肌理必须完整替换第2张图所有衣服布面；保留目标图原印花是错误的。第1张若无印花则按纯色/肌理替换。版型、松量、腰线、轮廓必须与目标图完全一致，禁止收腰修身、禁止改变宽松度，只换布面。袖型、领型、裁剪亦须与目标图一致。除衣服布面外，目标图其余内容保持不变。'
 
 /** 布料换花主提示词；可与用户附加说明拼接 */
 export function buildFabricTransferPrompt(multiTarget = false): string {
@@ -109,6 +118,7 @@ export function buildFabricTransferPrompt(multiTarget = false): string {
     PROMPT_IMAGE_ROLES,
     PROMPT_FABRIC_RULES,
     PROMPT_GARMENT_STRUCTURE_LOCK,
+    PROMPT_GARMENT_FIT_LOCK,
     PROMPT_FRAMING_LOCK,
     PROMPT_PRESERVE,
   ]

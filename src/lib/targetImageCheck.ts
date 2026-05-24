@@ -155,7 +155,7 @@ export async function checkTargetImage(file: File): Promise<TargetImageCheckResu
     if (!warnings.some((w) => w.code === 'partial_crop') && (await looksLikeTightCrop(file))) {
       warnings.push({
         code: 'tight_crop',
-        message: '特写/裁切构图，模型可能补全为全身或加配饰',
+        message: '特写/裁切构图，模型可能补全为全身、加配饰或改变版型',
       })
     }
   } catch {
@@ -178,7 +178,10 @@ const PROMPT_STRICT_FRAMING = `${PROMPT_FRAMING_LOCK}
 
 STRICT FRAMING MODE (user enabled): treat the target as a fixed crop — zero tolerance for reframing, zoom, or outpainting.`
 
+const PROMPT_STRICT_FIT = `STRICT FIT MODE (user enabled): zero tolerance for silhouette change — garment outer outline, waist width, ease, and volume must be identical to the target; fabric swap only.`
+
 const PROMPT_STRICT_FRAMING_EDIT = PROMPT_STRICT_FRAMING.replace(/image 2/g, 'the FIRST image')
+const PROMPT_STRICT_FIT_EDIT = PROMPT_STRICT_FIT.replace(/the target/g, 'the FIRST image')
 
 export interface BuildPerJobPromptOptions {
   warnings: TargetImageWarning[]
@@ -204,6 +207,7 @@ export function buildPerJobPromptSuffix(
   }
   if (isStrictFraming) {
     parts.push(forEdits ? PROMPT_STRICT_FRAMING_EDIT : PROMPT_STRICT_FRAMING)
+    parts.push(forEdits ? PROMPT_STRICT_FIT_EDIT : PROMPT_STRICT_FIT)
   }
 
   const targetLabel = forEdits ? 'the FIRST image' : 'image 2'
@@ -217,6 +221,9 @@ export function buildPerJobPromptSuffix(
   if (warnings.some((w) => w.code === 'partial_crop' || w.code === 'tight_crop')) {
     parts.push(
       `Keep identical crop and framing as ${targetLabel}; no outpainting, no completing partial garments, no adding shoes/bags/accessories.`,
+    )
+    parts.push(
+      `Preserve exact garment fit, ease, waist width, and outer contour from ${targetLabel}; no slimming, no tapering, no "beautifying" the silhouette.`,
     )
   }
   if (warnings.some((w) => w.code === 'low_resolution')) {

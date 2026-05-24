@@ -304,18 +304,6 @@ export default function App() {
       return
     }
 
-    const risky = queue.filter((j) => j.warnings && j.warnings.length > 0)
-    if (risky.length > 0) {
-      const lines = risky
-        .slice(0, 8)
-        .map((j) => `· ${j.file.name}：${j.warnings!.map((w) => w.message).join('；')}`)
-      const more = risky.length > 8 ? `\n…另有 ${risky.length - 8} 张` : ''
-      const ok = window.confirm(
-        `有 ${risky.length} 张目标图容易引发「补全全图 / 背面变正面 / 布样变套装」等问题：\n\n${lines.join('\n')}${more}\n\n建议删除后换成完整商品图。仍要继续生成？`,
-      )
-      if (!ok) return
-    }
-
     cancelRef.current = false
     setIsRunning(true)
 

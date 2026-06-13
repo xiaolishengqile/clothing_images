@@ -85,6 +85,42 @@ export const PROMPT_SOLID_FABRIC_EDIT = `SOLID FABRIC MODE — the SECOND image 
 - Replace ALL garment cloth in the FIRST image with that exact solid color field; remove every print from the FIRST image cloth.
 - Still obey GARMENT STRUCTURE LOCK, FIT LOCK, and FRAMING LOCK. Non-fabric pixels stay unchanged.`
 
+/** 裙子模式 — 只换裙子，上衣保持不变 */
+export const PROMPT_SKIRT_ONLY = `SKIRT ONLY MODE — replace ONLY the skirt/lower garment, keep the top unchanged (mandatory):
+- Replace ONLY the skirt or lower garment in image 2 with the textile from image 1.
+- The TOP / BLOUSE / SHIRT in image 2 MUST remain 100% unchanged — original color, original print, original everything.
+- If the outfit is a dress (one-piece), treat only the skirt portion (below waist) as the replacement area; keep the bodice/top half unchanged.
+- Forbidden: changing any part of the top, blouse, or upper garment.
+- Only the skirt/lower portion should show image 1's fabric.`
+
+/** 裙子模式 — 编辑接口专用 */
+export const PROMPT_SKIRT_ONLY_EDIT = `SKIRT ONLY MODE — replace ONLY the skirt/lower garment, keep the top unchanged (mandatory):
+- Replace ONLY the skirt or lower garment in the FIRST image with the textile from the SECOND image.
+- The TOP / BLOUSE / SHIRT in the FIRST image MUST remain 100% unchanged — original color, original print, original everything.
+- If the outfit is a dress (one-piece), treat only the skirt portion (below waist) as the replacement area; keep the bodice/top half unchanged.
+- Forbidden: changing any part of the top, blouse, or upper garment.
+- Only the skirt/lower portion should show the SECOND image's fabric.`
+
+/** 上下装分离模式 — 上衣对上衣，裤子对裤子分别替换 */
+export const PROMPT_SEPARATES_MODE = `SEPARATES MODE — replace top and bottom separately (mandatory):
+- Image 1 contains BOTH a top garment AND a bottom garment (skirt/pants) as separate flat lay pieces.
+- Sample the TOP fabric from image 1's upper garment ONLY, and apply it to the TOP in image 2.
+- Sample the BOTTOM fabric from image 1's lower garment ONLY, and apply it to the BOTTOM (skirt/pants) in image 2.
+- The top and bottom fabrics from image 1 are DIFFERENT — do NOT mix them up.
+- Preserve image 2's garment structure: top stays top, bottom stays bottom, each keeps its own cut and fit.
+- Forbidden: applying the top fabric to the bottom, or the bottom fabric to the top.
+- Forbidden: blending the two fabrics together or treating image 1 as a single textile source.`
+
+/** 上下装分离模式 — 编辑接口专用（第一张=目标图，第二张=参考图） */
+export const PROMPT_SEPARATES_MODE_EDIT = `SEPARATES MODE — replace top and bottom separately (mandatory):
+- The SECOND image contains BOTH a top garment AND a bottom garment (skirt/pants) as separate flat lay pieces.
+- Sample the TOP fabric from the SECOND image's upper garment ONLY, and apply it to the TOP in the FIRST image.
+- Sample the BOTTOM fabric from the SECOND image's lower garment ONLY, and apply it to the BOTTOM (skirt/pants) in the FIRST image.
+- The top and bottom fabrics from the SECOND image are DIFFERENT — do NOT mix them up.
+- Preserve the FIRST image's garment structure: top stays top, bottom stays bottom, each keeps its own cut and fit.
+- Forbidden: applying the top fabric to the bottom, or the bottom fabric to the top.
+- Forbidden: blending the two fabrics together or treating the SECOND image as a single textile source.`
+
 const PROMPT_GARMENT_STRUCTURE_LOCK = `GARMENT STRUCTURE LOCK — image 2 is the only authority for cut (mandatory):
 - Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short puff sleeves stay short puff — NOT slim bell or elbow unless image 2 has them), hem, seams, layers, and piece count.
 - Forbidden: redesigning or beautifying the garment; changing sleeve style or length; changing neckline or hem; importing cut, neckline, or silhouette from image 1.
@@ -106,6 +142,35 @@ export const PROMPT_SOLID_FABRIC = `SOLID FABRIC MODE — image 1 has little or 
 - Forbidden: keeping any pattern from image 2; "matching" image 2's old print; partial tint while leaving motifs visible.
 - Still obey GARMENT STRUCTURE LOCK and FIT LOCK: change color/texture on cloth only — do NOT change sleeve type, neckline, hem, silhouette, or fit.
 - Non-fabric pixels in image 2 stay unchanged.`
+
+/** 一键换色模式 — 用户指定颜色，替换衣服颜色 */
+export const PROMPT_COLOR_CHANGE = `COLOR CHANGE MODE — change garment color to the specified color (mandatory):
+- Replace ALL garment cloth color with the target color specified by user.
+- Preserve all shadows, highlights, folds, and fabric texture — ONLY change the hue/color value.
+- The garment should look like the same photo, just dyed in a different color.
+- Keep realistic shading: darker areas stay darker, highlights stay bright, maintain depth and dimension.
+- Forbidden: changing garment style, cut, or fit. Forbidden: flattening shadows or losing texture detail.
+- Background, model, pose, accessories remain 100% unchanged.`
+
+/** 上身展示模式 — 生成接口（图1=商品，图2=模特参考） */
+export const PROMPT_WEAR_MODE = `WEAR MODE — transfer garment from product photo onto model reference (mandatory):
+- Image 1: flat lay or hung product photo — garment(s) to wear; sole authority for design, pattern, color, cut, and details.
+- Image 2: model reference photo — desired pose, styling, accessories, scene, and composition (base presentation).
+- Put the garment(s) from Image 1 onto the model in Image 2.
+- Preserve Image 1's garment exactly: design, pattern, color, cut, neckline, sleeve style, hem, details, and piece count.
+- Preserve Image 2's presentation: model pose, body type, face, hair, accessories, background, lighting, and composition.
+- The output should look like Image 1's garment(s) are being worn by Image 2's model in Image 2's scene.
+- Forbidden: changing Image 1's garment design. Forbidden: keeping Image 2's original clothing.
+- If Image 1 shows a top + bottom outfit, both must be transferred to Image 2.`
+
+/** 上身展示模式 — 编辑接口（图1=模特参考底图，图2=商品） */
+export const PROMPT_WEAR_MODE_EDIT = `WEAR MODE — transfer garment onto model reference (mandatory):
+- FIRST image — model reference (base canvas). Preserve pose, body, face, hair, accessories, background, lighting, and composition exactly.
+- SECOND image — flat lay or hung product photo — garment(s) to wear; sole authority for design, pattern, color, cut, and details.
+- Put the garment from the SECOND image onto the model in the FIRST image.
+- Preserve the SECOND image's garment exactly. Preserve the FIRST image's scene and model presentation.
+- Forbidden: changing the garment design from the SECOND image. Forbidden: keeping the FIRST image's original clothing.
+- If the SECOND image shows a top + bottom outfit, both must be transferred.`
 
 /** 默认追加说明（简短中文，强化「必须换布」） */
 export const DEFAULT_PROMPT_SUFFIX =
@@ -136,6 +201,14 @@ export const STORAGE_KEY_SOLID_FABRIC = 'clothing_tool_solid_fabric'
 export const STORAGE_KEY_USE_2K = 'clothing_tool_use_2k'
 /** 默认开启：编辑接口更利于保构图 */
 export const STORAGE_KEY_USE_EDITS = 'clothing_tool_use_edits'
+/** 裙子模式：只换裙子，上衣不变 */
+export const STORAGE_KEY_SKIRT_ONLY = 'clothing_tool_skirt_only'
+/** 上下装分离模式：上衣对上衣，裤子对裤子分别替换 */
+export const STORAGE_KEY_SEPARATES_MODE = 'clothing_tool_separates_mode'
+/** 一键换色模式：用户指定颜色替换衣服颜色 */
+export const STORAGE_KEY_COLOR_CHANGE = 'clothing_tool_color_change'
+/** 上身展示模式：商品平铺图穿到参考图模特身上 */
+export const STORAGE_KEY_WEAR_MODE = 'clothing_tool_wear_mode'
 
 /** 默认竖版上架图比例（多数模特图为 3:4） */
 export const DEFAULT_ASPECT_RATIO = '3:4'

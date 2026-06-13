@@ -14,12 +14,20 @@ import {
   DEFAULT_SIZE,
   DEFAULT_SIZE_2K,
   MAX_BATCH_CONCURRENCY,
+  PROMPT_COLOR_CHANGE,
+  PROMPT_SEPARATES_MODE,
+  PROMPT_SEPARATES_MODE_EDIT,
   PROMPT_SOLID_FABRIC,
   PROMPT_SOLID_FABRIC_EDIT,
+  PROMPT_SKIRT_ONLY,
+  PROMPT_SKIRT_ONLY_EDIT,
+  PROMPT_WEAR_MODE,
+  PROMPT_WEAR_MODE_EDIT,
   SIZE_OPTIONS,
   SIZE_OPTIONS_2K,
   STORAGE_KEY_ASPECT,
   STORAGE_KEY_BASE,
+  STORAGE_KEY_COLOR_CHANGE,
   STORAGE_KEY_FOLLOW_TARGET_ASPECT,
   STORAGE_KEY_PROMPT,
   STORAGE_KEY_SIZE,
@@ -27,6 +35,9 @@ import {
   STORAGE_KEY_TOKEN,
   STORAGE_KEY_USE_2K,
   STORAGE_KEY_USE_EDITS,
+  STORAGE_KEY_SKIRT_ONLY,
+  STORAGE_KEY_SEPARATES_MODE,
+  STORAGE_KEY_WEAR_MODE,
 } from './lib/constants'
 import { getImageFilesFromDataTransfer, readFileAsDataURL } from './lib/files'
 import { closestAspectLabel, getImageDimensions, sizeForAspect } from './lib/imageAspect'
@@ -39,6 +50,35 @@ import './App.css'
 
 type JobStatus = 'queued' | 'running' | 'done' | 'error'
 type PasteTarget = 'fabric' | 'target'
+/** 主工作模式：换布（默认）、一键换色、上身展示 */
+type WorkMode = 'fabric' | 'colorChange' | 'wear'
+/** 换布变体：标准 / 裙子 / 上下装分离 */
+type FabricVariant = 'standard' | 'skirtOnly' | 'separates'
+
+const WORK_MODE_OPTIONS: { id: WorkMode; label: string; hint: string }[] = [
+  { id: 'fabric', label: '换布', hint: '布料图替换花纹' },
+  { id: 'colorChange', label: '换色', hint: '选色替换，无需布料图' },
+  { id: 'wear', label: '上身', hint: '商品穿到模特参考图' },
+]
+
+const FABRIC_VARIANT_OPTIONS: { id: FabricVariant; label: string; hint: string }[] = [
+  { id: 'standard', label: '标准', hint: '整件替换（默认）' },
+  { id: 'skirtOnly', label: '裙子模式', hint: '只换下装，上衣不变' },
+  { id: 'separates', label: '上下装分离', hint: '上衣、下装分别替换' },
+]
+
+function loadWorkMode(): WorkMode {
+  if (localStorage.getItem(STORAGE_KEY_WEAR_MODE) === '1') return 'wear'
+  if (localStorage.getItem(STORAGE_KEY_COLOR_CHANGE) === '1') return 'colorChange'
+  return 'fabric'
+}
+
+function loadFabricVariant(workMode: WorkMode): FabricVariant {
+  if (workMode !== 'fabric') return 'standard'
+  if (localStorage.getItem(STORAGE_KEY_SKIRT_ONLY) === '1') return 'skirtOnly'
+  if (localStorage.getItem(STORAGE_KEY_SEPARATES_MODE) === '1') return 'separates'
+  return 'standard'
+}
 
 interface ImagePreview {
   src: string
@@ -113,6 +153,16 @@ export default function App() {
     const stored = localStorage.getItem(STORAGE_KEY_USE_EDITS)
     return stored === null ? true : stored === '1'
   })
+  const [workMode, setWorkMode] = useState<WorkMode>(() => loadWorkMode())
+  const [fabricVariant, setFabricVariant] = useState<FabricVariant>(() => loadFabricVariant(loadWorkMode()))
+  const colorChangeMode = workMode === 'colorChange'
+  const wearMode = workMode === 'wear'
+  const skirtOnlyMode = fabricVariant === 'skirtOnly'
+  const separatesMode = fabricVariant === 'separates'
+  /** 换色模式选中的颜色 (hex) */
+  const [selectedColor, setSelectedColor] = useState<string>('#FF6B6B')
+  /** 上身展示模式的参考图 */
+  const [wearModeRefSource, setWearModeRefSource] = useState<FabricSource | null>(null)
 
   const activeSizeOptions = use2kOutput ? SIZE_OPTIONS_2K : SIZE_OPTIONS
 
@@ -128,6 +178,22 @@ export default function App() {
   const pasteTargetRef = useRef<PasteTarget>('fabric')
   const abortRef = useRef<AbortController | null>(null)
   const advancedDetailsRef = useRef<HTMLDetailsElement>(null)
+
+  // 预设色板
+  const PRESET_COLORS = useMemo(() => [
+    { name: '珊瑚红', hex: '#FF6B6B' },
+    { name: '樱花粉', hex: '#FFB6C1' },
+    { name: '薰衣草紫', hex: '#B8A3D9' },
+    { name: '天空蓝', hex: '#87CEEB' },
+    { name: '薄荷绿', hex: '#98FB98' },
+    { name: '柠檬黄', hex: '#FFF44F' },
+    { name: '经典黑', hex: '#2D2D2D' },
+    { name: '纯白', hex: '#F5F5F5' },
+    { name: '海军蓝', hex: '#003366' },
+    { name: '橄榄绿', hex: '#6B7F4C' },
+    { name: '酒红色', hex: '#722F37' },
+    { name: '驼色', hex: '#C69C6D' },
+  ], [])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_BASE, apiBase)
@@ -156,6 +222,18 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_USE_EDITS, useEditsApi ? '1' : '0')
   }, [useEditsApi])
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_SKIRT_ONLY, fabricVariant === 'skirtOnly' ? '1' : '0')
+    localStorage.setItem(STORAGE_KEY_SEPARATES_MODE, fabricVariant === 'separates' ? '1' : '0')
+  }, [fabricVariant])
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_COLOR_CHANGE, workMode === 'colorChange' ? '1' : '0')
+    localStorage.setItem(STORAGE_KEY_WEAR_MODE, workMode === 'wear' ? '1' : '0')
+  }, [workMode])
+
+  const selectWorkMode = useCallback((mode: WorkMode) => {
+    setWorkMode(mode)
+  }, [])
   useEffect(() => {
     const opts = use2kOutput ? SIZE_OPTIONS_2K : SIZE_OPTIONS
     const defaultSize = use2kOutput ? DEFAULT_SIZE_2K : DEFAULT_SIZE
@@ -207,6 +285,24 @@ export default function App() {
     })
   }, [])
 
+  const setWearModeRefFromFile = useCallback((file: File) => {
+    if (!/^image\//.test(file.type)) return
+    setWearModeRefSource((prev) => {
+      if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+      return {
+        file,
+        previewObjectUrl: URL.createObjectURL(file),
+      }
+    })
+  }, [])
+
+  const clearWearModeRefSource = useCallback(() => {
+    setWearModeRefSource((prev) => {
+      if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+      return null
+    })
+  }, [])
+
   const addTargetFiles = useCallback(
     (list: FileList | File[]) => {
       const arr = Array.from(list).filter((f) => /^image\//.test(f.type))
@@ -238,10 +334,12 @@ export default function App() {
       const files = getImageFilesFromDataTransfer(dt)
       if (files.length === 0) return
       e.preventDefault()
-      if (target === 'fabric') setFabricFromFile(files[0])
-      else addTargetFiles(files)
+      if (target === 'fabric') {
+        if (workMode === 'wear') setWearModeRefFromFile(files[0])
+        else setFabricFromFile(files[0])
+      } else addTargetFiles(files)
     },
-    [addTargetFiles, isRunning, setFabricFromFile],
+    [addTargetFiles, isRunning, setFabricFromFile, setWearModeRefFromFile, workMode],
   )
 
   useEffect(() => {
@@ -289,12 +387,16 @@ export default function App() {
       alert('请填写接口地址。')
       return
     }
-    if (!fabricSource) {
-      alert('请先上传「布料图」（第 1 步）。')
+    if (!colorChangeMode && !wearMode && !fabricSource) {
+      alert('请先上传「布料图」或「商品图」')
+      return
+    }
+    if (wearMode && !wearModeRefSource) {
+      alert('请先上传「模特参考图」')
       return
     }
     if (jobs.length === 0) {
-      alert('请至少上传一张「要换布的照片」（第 2 步）。')
+      alert(wearMode ? '请至少上传一张「商品图」' : '请至少上传一张「要换的图」')
       return
     }
 
@@ -309,20 +411,36 @@ export default function App() {
 
     const buildPrompt = useEditsApi ? buildFabricTransferPromptForEdits : buildFabricTransferPrompt
     const solidPrompt = useEditsApi ? PROMPT_SOLID_FABRIC_EDIT : PROMPT_SOLID_FABRIC
+    const skirtOnlyPrompt = useEditsApi ? PROMPT_SKIRT_ONLY_EDIT : PROMPT_SKIRT_ONLY
+    const separatesPrompt = useEditsApi ? PROMPT_SEPARATES_MODE_EDIT : PROMPT_SEPARATES_MODE
 
     const fullPrompt = [
-      buildPrompt(queue.length > 1),
-      DEFAULT_PROMPT_SUFFIX,
+      wearMode ? (useEditsApi ? PROMPT_WEAR_MODE_EDIT : PROMPT_WEAR_MODE) : buildPrompt(queue.length > 1),
+      wearMode ? '' : DEFAULT_PROMPT_SUFFIX,
       isSolidFabric ? solidPrompt : '',
+      skirtOnlyMode ? skirtOnlyPrompt : '',
+      separatesMode ? separatesPrompt : '',
+      colorChangeMode ? PROMPT_COLOR_CHANGE : '',
+      colorChangeMode ? `Target color: ${selectedColor}` : '',
       promptExtra.trim(),
     ]
       .filter(Boolean)
       .join('\n\n')
 
     let fabricPayload: string | undefined
-    if (!useEditsApi) {
+    let wearRefPayload: string | undefined
+    if (!useEditsApi && !colorChangeMode && !wearMode && fabricSource) {
       try {
         fabricPayload = await encodeImage(fabricSource.file)
+      } catch (e) {
+        setIsRunning(false)
+        alert(e instanceof Error ? e.message : String(e))
+        return
+      }
+    }
+    if (!useEditsApi && wearMode && wearModeRefSource) {
+      try {
+        wearRefPayload = await encodeImage(wearModeRefSource.file)
       } catch (e) {
         setIsRunning(false)
         alert(e instanceof Error ? e.message : String(e))
@@ -367,19 +485,23 @@ export default function App() {
               prompt,
               size: jobSize,
               aspect_ratio: jobAspect,
-              images: [job.file, fabricSource.file],
+              images: colorChangeMode
+                ? [job.file]
+                : wearMode
+                  ? [wearModeRefSource!.file, job.file]
+                  : [job.file, fabricSource!.file],
             },
             ac.signal,
           )
           imageDataUrl = result.imageDataUrl
         } else {
-          const targetPayload = await encodeImage(job.file)
+          const garmentPayload = await encodeImage(job.file)
           const genBody: GenerationsBody = {
             model: model.trim() || DEFAULT_MODEL,
             prompt,
             size: jobSize,
             aspect_ratio: jobAspect,
-            image: [fabricPayload!, targetPayload],
+            image: wearMode ? [garmentPayload, wearRefPayload!] : [fabricPayload!, garmentPayload],
           }
           const result = await postImagesGenerations(base, token, genBody, ac.signal)
           imageDataUrl = result.imageDataUrl
@@ -421,16 +543,20 @@ export default function App() {
     apiToken,
     aspectRatio,
     encodeImage,
+    workMode,
     fabricSource,
     followTargetAspect,
     isSolidFabric,
     jobs,
     model,
     promptExtra,
+    fabricVariant,
+    selectedColor,
     size,
     updateJob,
     use2kOutput,
     useEditsApi,
+    wearModeRefSource,
   ])
 
   const displayJobs = useMemo(() => {
@@ -446,7 +572,11 @@ export default function App() {
     })
   }, [jobs])
 
-  const canStart = Boolean(fabricSource && jobs.length > 0 && apiToken.trim())
+  const canStart = colorChangeMode
+    ? Boolean(jobs.length > 0 && apiToken.trim())
+    : wearMode
+      ? Boolean(wearModeRefSource && jobs.length > 0 && apiToken.trim())
+      : Boolean(fabricSource && jobs.length > 0 && apiToken.trim())
 
   const openImagePreview = (src: string, label: string) => {
     setImagePreview({ src, label })
@@ -622,27 +752,84 @@ export default function App() {
         </details>
       </section>
 
-      <ol className="steps-overview" aria-label="使用步骤">
-        <li className={apiToken.trim() ? 'done' : ''}>
-          <span className="step-num">1</span>
-          <span>填写密钥</span>
-        </li>
-        <li className={fabricSource ? 'done' : ''}>
-          <span className="step-num">2</span>
-          <span>上传布料图</span>
-        </li>
-        <li className={jobs.length > 0 ? 'done' : ''}>
-          <span className="step-num">3</span>
-          <span>上传要换的图</span>
-        </li>
-        <li>
-          <span className="step-num">4</span>
-          <span>生成同款图</span>
-        </li>
-      </ol>
+      <section className="mode-panel" aria-label="工作模式">
+        <div className="mode-panel-section">
+          <span className="mode-panel-label">工作模式</span>
+          <div className="segment-group" role="radiogroup" aria-label="工作模式">
+            {WORK_MODE_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                role="radio"
+                aria-checked={workMode === opt.id}
+                className={`segment-btn${workMode === opt.id ? ' selected' : ''}`}
+                disabled={isRunning}
+                onClick={() => selectWorkMode(opt.id)}
+              >
+                <span className="segment-btn-label">{opt.label}</span>
+                <span className="segment-btn-hint">{opt.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {workMode === 'fabric' && (
+          <div className="mode-panel-section mode-panel-sub">
+            <span className="mode-panel-label">换布变体</span>
+            <div className="segment-group" role="radiogroup" aria-label="换布变体">
+              {FABRIC_VARIANT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={fabricVariant === opt.id}
+                  className={`segment-btn segment-btn-compact${fabricVariant === opt.id ? ' selected' : ''}`}
+                  disabled={isRunning}
+                  onClick={() => setFabricVariant(opt.id)}
+                >
+                  <span className="segment-btn-label">{opt.label}</span>
+                  <span className="segment-btn-hint">{opt.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {colorChangeMode && (
+          <div className="mode-panel-section mode-panel-sub mode-panel-color">
+            <span className="mode-panel-label">目标颜色</span>
+            <div className="color-swatch-grid">
+              {PRESET_COLORS.map((color) => (
+                <button
+                  key={color.hex}
+                  type="button"
+                  className={`color-swatch${selectedColor === color.hex ? ' selected' : ''}`}
+                  style={{ backgroundColor: color.hex }}
+                  title={color.name}
+                  disabled={isRunning}
+                  onClick={() => setSelectedColor(color.hex)}
+                />
+              ))}
+            </div>
+            <div className="color-custom-input">
+              <label>
+                自定义
+                <input
+                  type="color"
+                  value={selectedColor}
+                  disabled={isRunning}
+                  onChange={(e) => setSelectedColor(e.target.value)}
+                />
+                <span className="color-hex-display">{selectedColor}</span>
+              </label>
+            </div>
+          </div>
+        )}
+      </section>
 
       <main className="app-main">
         <div className="upload-steps-row">
+          {!colorChangeMode && !wearMode && (
           <section
             className={`step-card step-card-upload paste-zone${pasteTarget === 'fabric' ? ' paste-zone-active' : ''}${fabricSource ? ' step-card-done' : ''}`}
             tabIndex={0}
@@ -661,7 +848,7 @@ export default function App() {
                 disabled={isRunning}
                 onChange={(e) => setIsSolidFabric(e.target.checked)}
               />
-              纯色布料（无印花，按颜色+肌理替换）
+              纯色布料（无印花，按颜色 + 肌理替换）
             </label>
 
             <div className="upload-card">
@@ -707,6 +894,68 @@ export default function App() {
               </div>
             </div>
           </section>
+          )}
+
+          {wearMode && (
+          <section
+            className={`step-card step-card-upload paste-zone${pasteTarget === 'fabric' ? ' paste-zone-active' : ''}${wearModeRefSource ? ' step-card-done' : ''}`}
+            tabIndex={0}
+            onFocus={() => setPasteTarget('fabric')}
+            onMouseDown={() => setPasteTarget('fabric')}
+            onPaste={(e) => handlePaste(e, 'fabric')}
+          >
+            <div className="step-card-head">
+              <span className="step-badge">第 1 步</span>
+              <h2>上传「模特参考图」</h2>
+            </div>
+            <p className="step-desc">
+              上传一张<strong>模特展示参考图</strong>（姿势、场景、配饰等展示效果），所有商品将穿到这位模特身上。
+            </p>
+
+            <div className="upload-card">
+              <div className={`preview-box${wearModeRefSource ? '' : ' empty'}`}>
+                {wearModeRefSource ? (
+                  <button
+                    type="button"
+                    className="preview-image-btn"
+                    title="点击查看大图"
+                    onClick={() => openImagePreview(wearModeRefSource.previewObjectUrl, '模特参考图')}
+                  >
+                    <img src={wearModeRefSource.previewObjectUrl} alt="模特参考图预览" />
+                  </button>
+                ) : (
+                  <span className="preview-placeholder">点击右侧按钮或粘贴图片</span>
+                )}
+              </div>
+              <div className="upload-card-actions">
+                <label className="btn btn-secondary">
+                  选择图片
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={isRunning}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) setWearModeRefFromFile(f)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={isRunning || !wearModeRefSource}
+                  onClick={clearWearModeRefSource}
+                >
+                  重新选择
+                </button>
+                <p className="upload-tip">
+                  先点一下本区域，再按 <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>V</kbd> 可粘贴截图
+                </p>
+              </div>
+            </div>
+          </section>
+          )}
 
           <section
             className={`step-card step-card-upload paste-zone${pasteTarget === 'target' ? ' paste-zone-active' : ''}${jobs.length > 0 ? ' step-card-done' : ''}`}
@@ -716,11 +965,19 @@ export default function App() {
             onPaste={(e) => handlePaste(e, 'target')}
           >
             <div className="step-card-head">
-              <span className="step-badge">第 2 步</span>
-              <h2>上传「要换布的照片」</h2>
+              <span className="step-badge">{colorChangeMode ? '最后一步' : wearMode ? '第 2 步' : '第 2 步'}</span>
+              <h2>{wearMode ? '上传「商品图」' : '上传「要换的图」'}</h2>
             </div>
             <p className="step-desc">
-              请传<strong>完整商品图</strong>（平铺/模特/挂拍），勿传布样特写。可多张上传；若是<strong>背面图</strong>请在卡片上勾选；局部图等风险会自动提示。
+              {wearMode ? (
+                <>
+                  请传<strong>平铺/挂拍商品图</strong>（要上身展示的衣服），可多张批量；每张会分别穿到模特参考图上。
+                </>
+              ) : (
+                <>
+                  请传<strong>完整商品图</strong>（平铺/模特/挂拍），勿传布样特写。可多张上传；若是<strong>背面图</strong>请在卡片上勾选；局部图等风险会自动提示。
+                </>
+              )}
             </p>
 
             <div
@@ -761,7 +1018,7 @@ export default function App() {
 
         <section className="step-card step-card-action">
             <div className="step-card-head">
-              <span className="step-badge step-badge-accent">第 3 步</span>
+              <span className="step-badge step-badge-accent">{wearMode ? '第 3 步' : '第 3 步'}</span>
               <h2>生成同一套衣服的多张图</h2>
             </div>
 
@@ -793,9 +1050,15 @@ export default function App() {
               <p className="action-hint">
                 {!apiToken.trim()
                   ? '请先在顶部填写 API 密钥'
-                  : !fabricSource
-                    ? '请先完成第 1 步'
-                    : '请先完成第 2 步'}
+                  : wearMode && !wearModeRefSource
+                    ? '请先上传模特参考图'
+                    : !wearMode && !colorChangeMode && !fabricSource
+                      ? '请先完成第 1 步'
+                      : jobs.length === 0
+                        ? wearMode
+                          ? '请上传商品图'
+                          : '请上传要换的图'
+                        : '请完成上述步骤'}
               </p>
             ) : null}
 

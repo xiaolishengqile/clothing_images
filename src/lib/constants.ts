@@ -89,17 +89,21 @@ export const PROMPT_SOLID_FABRIC_EDIT = `SOLID FABRIC MODE — the SECOND image 
 export const PROMPT_SKIRT_ONLY = `SKIRT ONLY MODE — replace ONLY the skirt/lower garment, keep the top unchanged (mandatory):
 - Replace ONLY the skirt or lower garment in image 2 with the textile from image 1.
 - The TOP / BLOUSE / SHIRT in image 2 MUST remain 100% unchanged — original color, original print, original everything.
-- If the outfit is a dress (one-piece), treat only the skirt portion (below waist) as the replacement area; keep the bodice/top half unchanged.
+- If the outfit is a dress (one-piece), treat only the skirt portion (below waist/bust line) as the replacement area; keep the bodice/top half unchanged.
+- Critical: Draw an imaginary horizontal line at the waist/bust boundary. ONLY change pixels BELOW this line. Everything ABOVE stays original.
 - Forbidden: changing any part of the top, blouse, or upper garment.
-- Only the skirt/lower portion should show image 1's fabric.`
+- Only the skirt/lower portion should show image 1's fabric.
+- If image 1 shows a full dress, sample ONLY the lower skirt portion's fabric — do NOT import the bodice/top part's color or pattern.`
 
 /** 裙子模式 — 编辑接口专用 */
 export const PROMPT_SKIRT_ONLY_EDIT = `SKIRT ONLY MODE — replace ONLY the skirt/lower garment, keep the top unchanged (mandatory):
 - Replace ONLY the skirt or lower garment in the FIRST image with the textile from the SECOND image.
 - The TOP / BLOUSE / SHIRT in the FIRST image MUST remain 100% unchanged — original color, original print, original everything.
-- If the outfit is a dress (one-piece), treat only the skirt portion (below waist) as the replacement area; keep the bodice/top half unchanged.
+- If the outfit is a dress (one-piece), treat only the skirt portion (below waist/bust line) as the replacement area; keep the bodice/top half unchanged.
+- Critical: Draw an imaginary horizontal line at the waist/bust boundary. ONLY change pixels BELOW this line. Everything ABOVE stays original.
 - Forbidden: changing any part of the top, blouse, or upper garment.
-- Only the skirt/lower portion should show the SECOND image's fabric.`
+- Only the skirt/lower portion should show the SECOND image's fabric.
+- If the SECOND image shows a full dress, sample ONLY the lower skirt portion's fabric — do NOT import the bodice/top part's color or pattern.`
 
 /** 上下装分离模式 — 上衣对上衣，裤子对裤子分别替换 */
 export const PROMPT_SEPARATES_MODE = `SEPARATES MODE — replace top and bottom separately (mandatory):
@@ -157,10 +161,10 @@ export const PROMPT_WEAR_MODE = `WEAR MODE — transfer garment from product pho
 - Image 1: flat lay or hung product photo — garment(s) to wear; sole authority for design, pattern, color, cut, and details.
 - Image 2: model reference photo — desired pose, styling, accessories, scene, and composition (base presentation).
 - Put the garment(s) from Image 1 onto the model in Image 2.
-- Preserve Image 1's garment exactly: design, pattern, color, cut, neckline, sleeve style, hem, details, and piece count.
+- CRITICAL — Preserve Image 1's garment 100% exactly: design, pattern, color, cut, neckline shape, collar style, sleeve length and style, hem shape, all details (embroidery, prints, buttons, trims, pockets, seams), piece count, and overall silhouette. Every motif and detail must match Image 1 pixel-perfectly — do NOT redraw, reinterpret, or redesign any part of the garment.
 - Preserve Image 2's presentation: model pose, body type, face, hair, accessories, background, lighting, and composition.
-- The output should look like Image 1's garment(s) are being worn by Image 2's model in Image 2's scene.
-- Forbidden: changing Image 1's garment design. Forbidden: keeping Image 2's original clothing.
+- The output should look like Image 1's actual garment (not a redesigned version) is being worn by Image 2's model in Image 2's scene.
+- Forbidden: changing Image 1's garment design in any way — no altering neckline, no changing sleeve style, no moving or redrawing prints/embroidery, no "improving" or "stylizing" the garment. The garment from Image 1 must be copied exactly as-is.
 - If Image 1 shows a top + bottom outfit, both must be transferred to Image 2.`
 
 /** 上身展示模式 — 编辑接口（图1=模特参考底图，图2=商品） */
@@ -168,8 +172,9 @@ export const PROMPT_WEAR_MODE_EDIT = `WEAR MODE — transfer garment onto model 
 - FIRST image — model reference (base canvas). Preserve pose, body, face, hair, accessories, background, lighting, and composition exactly.
 - SECOND image — flat lay or hung product photo — garment(s) to wear; sole authority for design, pattern, color, cut, and details.
 - Put the garment from the SECOND image onto the model in the FIRST image.
-- Preserve the SECOND image's garment exactly. Preserve the FIRST image's scene and model presentation.
-- Forbidden: changing the garment design from the SECOND image. Forbidden: keeping the FIRST image's original clothing.
+- CRITICAL — Preserve the SECOND image's garment 100% exactly: design, pattern, color, cut, neckline shape, collar style, sleeve length and style, hem shape, all details (embroidery, prints, buttons, trims, pockets, seams), piece count, and overall silhouette. Every motif and detail must match the SECOND image pixel-perfectly — do NOT redraw, reinterpret, or redesign any part of the garment.
+- Preserve the FIRST image's scene and model presentation.
+- Forbidden: changing the garment design from the SECOND image in any way — no altering neckline, no changing sleeve style, no moving or redrawing prints/embroidery, no "improving" or "stylizing" the garment. The garment from the SECOND image must be copied exactly as-is.
 - If the SECOND image shows a top + bottom outfit, both must be transferred.`
 
 /** 默认追加说明（简短中文，强化「必须换布」） */

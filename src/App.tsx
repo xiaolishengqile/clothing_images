@@ -795,6 +795,16 @@ export default function App() {
           </div>
         )}
 
+        {workMode === 'fabric' && skirtOnlyMode && (
+          <div className="mode-panel-note" style={{ marginTop: 12, padding: '10px 12px', background: '#fff7e6', border: '1px solid #ffe58f', borderRadius: 8 }}>
+            <p style={{ margin: 0, fontSize: 13, color: '#b45309', lineHeight: 1.5 }}>
+              <strong> 裙子模式提示：</strong>
+              为了获得最佳效果，请上传<strong>仅包含裙子布料</strong>的图片（如裙子平铺图、布料色卡），避免上传完整连衣裙。
+              这样 AI 能更准确地识别并只替换下装部分，保持上衣不变。
+            </p>
+          </div>
+        )}
+
         {colorChangeMode && (
           <div className="mode-panel-section mode-panel-sub mode-panel-color">
             <span className="mode-panel-label">目标颜色</span>

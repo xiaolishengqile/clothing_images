@@ -193,9 +193,10 @@ export default function App() {
   const colorChangeMode = workMode === 'colorChange'
   const wearMode = workMode === 'wear'
   const colorCardMode = workMode === 'colorCard'
-  const skirtOnlyMode = fabricVariant === 'skirtOnly'
-  const separatesMode = fabricVariant === 'separates'
-  const separatesDualMode = fabricVariant === 'separatesDual'
+  const inFabricMode = workMode === 'fabric'
+  const skirtOnlyMode = inFabricMode && fabricVariant === 'skirtOnly'
+  const separatesMode = inFabricMode && fabricVariant === 'separates'
+  const separatesDualMode = inFabricMode && fabricVariant === 'separatesDual'
   /** 换色模式选中的颜色 (hex) */
   const [selectedColor, setSelectedColor] = useState<string>('#FF6B6B')
   /** 上身展示模式的参考图 */

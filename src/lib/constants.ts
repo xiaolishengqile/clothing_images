@@ -125,6 +125,28 @@ export const PROMPT_SEPARATES_MODE_EDIT = `SEPARATES MODE — replace top and bo
 - Forbidden: applying the top fabric to the bottom, or the bottom fabric to the top.
 - Forbidden: blending the two fabrics together or treating the SECOND image as a single textile source.`
 
+/** 上下装双参考模式 — 生成接口（图1=上衣参考，图2=下装参考，图3=目标图） */
+export const PROMPT_SEPARATES_DUAL_MODE = `SEPARATES DUAL-REFERENCE MODE — replace top and bottom from two separate references (mandatory):
+- Image 1 contains ONLY the TOP / BLOUSE / SHIRT fabric reference. It is the sole authority for the TOP fabric color, print, and texture.
+- Image 2 contains ONLY the BOTTOM / SKIRT / PANTS fabric reference. It is the sole authority for the BOTTOM fabric color, print, and texture.
+- Image 3 is the target product/model photo. It defines the scene, person, pose, framing, garment cut, fit, folds, shadows, and construction.
+- Apply Image 1 textile ONLY to the TOP in Image 3.
+- Apply Image 2 textile ONLY to the BOTTOM garment in Image 3.
+- Preserve Image 3 garment categories and boundaries: top stays top, bottom stays bottom; never merge pieces into a dress or jumpsuit.
+- Forbidden: applying Image 1 to the bottom, applying Image 2 to the top, mixing the two fabrics, copying garment silhouettes from reference images, or redesigning the outfit.
+- Keep Image 3 background, model, pose, accessories, lighting, crop, garment shape, fit, and drape unchanged.`
+
+/** 上下装双参考模式 — 编辑接口（第一张=目标图，第二张=上衣参考，第三张=下装参考） */
+export const PROMPT_SEPARATES_DUAL_MODE_EDIT = `SEPARATES DUAL-REFERENCE MODE — replace top and bottom from two separate references (mandatory):
+- FIRST image is the target product/model photo. It defines the scene, person, pose, framing, garment cut, fit, folds, shadows, and construction.
+- SECOND image contains ONLY the TOP / BLOUSE / SHIRT fabric reference. It is the sole authority for the TOP fabric color, print, and texture.
+- THIRD image contains ONLY the BOTTOM / SKIRT / PANTS fabric reference. It is the sole authority for the BOTTOM fabric color, print, and texture.
+- Apply the SECOND image textile ONLY to the TOP in the FIRST image.
+- Apply the THIRD image textile ONLY to the BOTTOM garment in the FIRST image.
+- Preserve FIRST image garment categories and boundaries: top stays top, bottom stays bottom; never merge pieces into a dress or jumpsuit.
+- Forbidden: applying the SECOND image to the bottom, applying the THIRD image to the top, mixing the two fabrics, copying garment silhouettes from reference images, or redesigning the outfit.
+- Keep FIRST image background, model, pose, accessories, lighting, crop, garment shape, fit, and drape unchanged.`
+
 const PROMPT_GARMENT_STRUCTURE_LOCK = `GARMENT STRUCTURE LOCK — image 2 is the only authority for cut (mandatory):
 - Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short puff sleeves stay short puff — NOT slim bell or elbow unless image 2 has them), hem, seams, layers, and piece count.
 - Forbidden: redesigning or beautifying the garment; changing sleeve style or length; changing neckline or hem; importing cut, neckline, or silhouette from image 1.
@@ -147,14 +169,140 @@ export const PROMPT_SOLID_FABRIC = `SOLID FABRIC MODE — image 1 has little or 
 - Still obey GARMENT STRUCTURE LOCK and FIT LOCK: change color/texture on cloth only — do NOT change sleeve type, neckline, hem, silhouette, or fit.
 - Non-fabric pixels in image 2 stay unchanged.`
 
-/** 一键换色模式 — 用户指定颜色，替换衣服颜色 */
-export const PROMPT_COLOR_CHANGE = `COLOR CHANGE MODE — change garment color to the specified color (mandatory):
-- Replace ALL garment cloth color with the target color specified by user.
-- Preserve all shadows, highlights, folds, and fabric texture — ONLY change the hue/color value.
-- The garment should look like the same photo, just dyed in a different color.
-- Keep realistic shading: darker areas stay darker, highlights stay bright, maintain depth and dimension.
-- Forbidden: changing garment style, cut, or fit. Forbidden: flattening shadows or losing texture detail.
-- Background, model, pose, accessories remain 100% unchanged.`
+/** 一键换色模式 — 核心：仅改色相，保留图案/肌理/褶皱/缝线 */
+const PROMPT_COLOR_CHANGE_CORE = `COLOR CHANGE MODE — recolor garment cloth only (mandatory):
+- Change ONLY the hue of garment cloth to the user-specified target color. This is a dye/recolor on the existing fabric — NOT a redesign or re-texture.
+- The base photo is the sole authority for pattern layout, weave, folds, seams, and every surface detail.
+- Output must look like the same photograph with the garment dyed — not a newly rendered outfit.
+- Keep realistic shading: darker fold areas stay darker, highlights stay bright; only shift color inside existing shadow/highlight geometry.
+- Forbidden: changing garment style, cut, fit, or silhouette. Forbidden: flattening, smoothing, or beautifying the cloth.
+- Background, model, face, hair, pose, accessories, props, lighting, crop, and composition remain 100% unchanged.`
+
+/** 换色 — 图案/肌理/褶皱/拼接细节锁 */
+const PROMPT_COLOR_PATTERN_LOCK = `PATTERN & SURFACE DETAIL LOCK — preserve ALL cloth structure from the base photo (mandatory):
+- Preserve exact pattern type and layout: gingham, plaid, check, stripe, floral, or print — same scale, repeat size, grid proportions
+- Preserve white or contrast squares/lines and their proportions; recolor only the non-white / dominant color areas to the target hue.
+- Preserve weave, crinkle, seersucker ridges, gauze grain, knit texture, and all micro-surface detail — do NOT flatten into a solid color field.
+- Preserve every fold, wrinkle, crease, drape shadow, and highlight exactly — shadow lines and depth cues must match the original photo.
+- Preserve construction details: seam lines, topstitching, panel joins, placket edges, collar/cuff ruffle layers, buttonholes, buttons, and color-block boundaries — recolor each cloth panel but keep seam geometry and stitching visible.
+- Forbidden: removing prints or patterns; inventing new patterns; changing check/plaid scale; smoothing wrinkles; erasing seam lines or panel joins.
+- If the original cloth is solid (no print), keep it solid in the target color while preserving weave texture and fold shadows.`
+
+function buildColorChangeStructureLock(baseLabel: string): string {
+  return `GARMENT STRUCTURE LOCK — ${baseLabel} is the only authority for cut (mandatory):
+- Match exactly: garment category, silhouette, neckline, collar, placket, sleeve length and style, ruffles, hem, seams, layers, and piece count.
+- Forbidden: redesigning, beautifying, or changing sleeve/neckline/hem style.`
+}
+
+function buildColorChangeFitLock(baseLabel: string): string {
+  return `FIT / SILHOUETTE LOCK — ${baseLabel} is the only authority for fit (mandatory):
+- Preserve exact ease, looseness, waist width, shoulder width, garment length, hem width, and outer contour.
+- Forbidden: slimming, tapering, cinching, or reducing volume. Garment outline and drape must match ${baseLabel}.`
+}
+
+function buildColorChangeFramingLock(baseLabel: string): string {
+  return `FRAMING LOCK — ${baseLabel} canvas is sacred (mandatory):
+- Output MUST match ${baseLabel} in crop, zoom, margins, subject scale, and visible body parts.
+- Forbidden: outpainting, zooming out, completing partial views, or adding props/accessories not in ${baseLabel}.
+- Only garment cloth hue may change.`
+}
+
+const PROMPT_COLOR_CHANGE_SUFFIX_ZH =
+  '【必做】仅将衣服布料主色改为目标色；必须完整保留原有格纹/印花结构、白色格子、布料肌理、褶皱阴影、缝线拼接与所有表面细节；禁止变成纯色块、禁止抹平褶皱、禁止改变版型与构图。真实照片效果。'
+
+/** 一键换色模式 — 完整提示词（单图，无布料参考） */
+export function buildColorChangePrompt(forEdits: boolean, targetColor: string): string {
+  const baseLabel = forEdits ? 'the FIRST image' : 'the input image'
+  return [
+    PROMPT_COLOR_CHANGE_CORE,
+    forEdits
+      ? `Edit mode — image order:\n1. FIRST image — product photo to recolor (base canvas). Defines scene, pose, framing, garment construction, pattern, and all cloth detail. Preserve this layout exactly.`
+      : `Single input image — product photo to recolor. Defines scene, pose, framing, garment construction, pattern, and all cloth detail.`,
+    PROMPT_COLOR_PATTERN_LOCK.replace(/the base photo/g, baseLabel).replace(/the original photo/g, baseLabel),
+    buildColorChangeStructureLock(baseLabel),
+    buildColorChangeFitLock(baseLabel),
+    buildColorChangeFramingLock(baseLabel),
+    `Target color: ${targetColor}`,
+    PROMPT_COLOR_CHANGE_SUFFIX_ZH,
+  ].join('\n\n')
+}
+
+/** @deprecated 使用 buildColorChangePrompt；保留导出以免外部引用报错 */
+export const PROMPT_COLOR_CHANGE = PROMPT_COLOR_CHANGE_CORE
+
+type ColorCardView = 'front' | 'back'
+
+function colorCardViewPrompt(view: ColorCardView, baseImageLabel: string, hasBackReference = false): string {
+  if (view === 'front') {
+    return `Output view:
+- Keep the ${baseImageLabel} front-facing composition and pose.
+- Preserve the same model, pants, accessories, background, lighting, crop, and camera angle.
+- Only the top/shirt fabric colorway changes.`
+  }
+
+  if (hasBackReference) {
+    return `Output view:
+- Keep the ${baseImageLabel} back-facing composition and pose.
+- Preserve the same model, pants, accessories, background, lighting, crop, and camera angle.
+- Only the back view top/shirt fabric colorway changes. Do not turn the model to the front.`
+  }
+
+  return `Output view:
+- Generate the SAME model wearing the SAME top as a realistic BACK VIEW product photo.
+- The top must match the front reference's cut, collar/placket logic, sleeve shape, length, looseness, hem width, fabric drape, plaid scale, and texture.
+- Use a natural back-facing pose consistent with the original outfit and scene. Keep pants, body type, background style, and lighting consistent.
+- This is a back view inferred from the front reference; do not show the model facing the camera.`
+}
+
+/** 色卡模式 — 编辑接口（第一张=模特参考，第二张=编号色卡） */
+export function buildColorCardPromptForEdits(
+  swatchNumber: number,
+  view: ColorCardView,
+  hasBackReference = false,
+): string {
+  const baseRole =
+    view === 'back' && hasBackReference
+      ? 'FIRST image — back model reference and base garment. It defines the person, outfit styling, top cut, plaid scale, fabric folds, lighting, and scene.'
+      : 'FIRST image — front model reference and base garment. It defines the person, outfit styling, top cut, plaid scale, fabric folds, lighting, and scene.'
+
+  return `COLOR CARD MODE — numbered swatch recolor (mandatory):
+- ${baseRole}
+- SECOND image — numbered color card. Automatically locate swatch number ${swatchNumber} on the color card and read its plaid colorway.
+- Recolor ONLY the model's TOP / SHIRT fabric to match swatch number ${swatchNumber}'s plaid colorway from the SECOND image.
+- Preserve the original top's plaid proportion, white squares, weave, folds, shadows, highlights, buttons/placket behavior, and fabric texture.
+- Preserve all non-top pixels unless the requested output is a back view.
+- Do not change pants, accessories, body shape, background, or photo realism.
+- Do not invent a different plaid, do not use the wrong numbered swatch, and do not flatten the cloth into a solid color.
+
+${colorCardViewPrompt(view, 'FIRST image', hasBackReference)}
+
+中文要求：参考图片1和图片2。只将模特上衣布料颜色改为色卡编号${swatchNumber}的格子配色；保留原上衣格纹结构、白色格子、褶皱、阴影和布料质感。人物、裤子、饰品、背景尽量保持一致。真实照片效果。`
+}
+
+/** 色卡模式 — 生成接口（图1=编号色卡，图2=模特参考） */
+export function buildColorCardPrompt(
+  swatchNumber: number,
+  view: ColorCardView,
+  hasBackReference = false,
+): string {
+  const baseRole =
+    view === 'back' && hasBackReference
+      ? 'Image 2 — back model reference and base garment. It defines the person, outfit styling, top cut, plaid scale, fabric folds, lighting, and scene.'
+      : 'Image 2 — front model reference and base garment. It defines the person, outfit styling, top cut, plaid scale, fabric folds, lighting, and scene.'
+
+  return `COLOR CARD MODE — numbered swatch recolor (mandatory):
+- Image 1 — numbered color card. Automatically locate swatch number ${swatchNumber} and read its plaid colorway.
+- ${baseRole}
+- Recolor ONLY the model's TOP / SHIRT fabric to match swatch number ${swatchNumber}'s plaid colorway from Image 1.
+- Preserve the original top's plaid proportion, white squares, weave, folds, shadows, highlights, buttons/placket behavior, and fabric texture.
+- Preserve all non-top pixels unless the requested output is a back view.
+- Do not change pants, accessories, body shape, background, or photo realism.
+- Do not invent a different plaid, do not use the wrong numbered swatch, and do not flatten the cloth into a solid color.
+
+${colorCardViewPrompt(view, 'Image 2', hasBackReference)}
+
+中文要求：参考图片1和图片2。只将模特上衣布料颜色改为色卡编号${swatchNumber}的格子配色；保留原上衣格纹结构、白色格子、褶皱、阴影和布料质感。人物、裤子、饰品、背景尽量保持一致。真实照片效果。`
+}
 
 /** 上身展示模式 — 生成接口（图1=商品，图2=模特参考） */
 export const PROMPT_WEAR_MODE = `WEAR MODE — transfer garment from product photo onto model reference (mandatory):
@@ -210,10 +358,16 @@ export const STORAGE_KEY_USE_EDITS = 'clothing_tool_use_edits'
 export const STORAGE_KEY_SKIRT_ONLY = 'clothing_tool_skirt_only'
 /** 上下装分离模式：上衣对上衣，裤子对裤子分别替换 */
 export const STORAGE_KEY_SEPARATES_MODE = 'clothing_tool_separates_mode'
+/** 上下装双参考模式：上衣参考、下装参考分别上传 */
+export const STORAGE_KEY_SEPARATES_DUAL_MODE = 'clothing_tool_separates_dual_mode'
 /** 一键换色模式：用户指定颜色替换衣服颜色 */
 export const STORAGE_KEY_COLOR_CHANGE = 'clothing_tool_color_change'
 /** 上身展示模式：商品平铺图穿到参考图模特身上 */
 export const STORAGE_KEY_WEAR_MODE = 'clothing_tool_wear_mode'
+/** 色卡模式：一张正面图 + 一张编号色卡批量生成正/背面 */
+export const STORAGE_KEY_COLOR_CARD_MODE = 'clothing_tool_color_card_mode'
+/** 色卡模式：编号数量，按 1-N 展开 */
+export const STORAGE_KEY_COLOR_CARD_COUNT = 'clothing_tool_color_card_count'
 
 /** 默认竖版上架图比例（多数模特图为 3:4） */
 export const DEFAULT_ASPECT_RATIO = '3:4'

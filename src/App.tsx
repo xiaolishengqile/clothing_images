@@ -5,6 +5,8 @@ import { postImagesGenerations, type GenerationsBody } from './api/imagesGenerat
 import { postImagesEdits } from './api/imagesEdits'
 import {
   ASPECT_OPTIONS,
+  buildColorCardPrompt,
+  buildColorCardPromptForEdits,
   buildFabricTransferPrompt,
   buildFabricTransferPromptForEdits,
   DEFAULT_ASPECT_RATIO,
@@ -14,9 +16,11 @@ import {
   DEFAULT_SIZE,
   DEFAULT_SIZE_2K,
   MAX_BATCH_CONCURRENCY,
-  PROMPT_COLOR_CHANGE,
+  buildColorChangePrompt,
   PROMPT_SEPARATES_MODE,
   PROMPT_SEPARATES_MODE_EDIT,
+  PROMPT_SEPARATES_DUAL_MODE,
+  PROMPT_SEPARATES_DUAL_MODE_EDIT,
   PROMPT_SOLID_FABRIC,
   PROMPT_SOLID_FABRIC_EDIT,
   PROMPT_SKIRT_ONLY,
@@ -28,6 +32,8 @@ import {
   STORAGE_KEY_ASPECT,
   STORAGE_KEY_BASE,
   STORAGE_KEY_COLOR_CHANGE,
+  STORAGE_KEY_COLOR_CARD_COUNT,
+  STORAGE_KEY_COLOR_CARD_MODE,
   STORAGE_KEY_FOLLOW_TARGET_ASPECT,
   STORAGE_KEY_PROMPT,
   STORAGE_KEY_SIZE,
@@ -36,6 +42,7 @@ import {
   STORAGE_KEY_USE_2K,
   STORAGE_KEY_USE_EDITS,
   STORAGE_KEY_SKIRT_ONLY,
+  STORAGE_KEY_SEPARATES_DUAL_MODE,
   STORAGE_KEY_SEPARATES_MODE,
   STORAGE_KEY_WEAR_MODE,
 } from './lib/constants'
@@ -49,25 +56,33 @@ import {
 import './App.css'
 
 type JobStatus = 'queued' | 'running' | 'done' | 'error'
-type PasteTarget = 'fabric' | 'target'
-/** 主工作模式：换布（默认）、一键换色、上身展示 */
-type WorkMode = 'fabric' | 'colorChange' | 'wear'
-/** 换布变体：标准 / 裙子 / 上下装分离 */
-type FabricVariant = 'standard' | 'skirtOnly' | 'separates'
+type PasteTarget = 'fabric' | 'fabricTop' | 'fabricBottom' | 'target' | 'colorCardBack'
+/** 主工作模式：换布（默认）、一键换色、上身展示、色卡 */
+type WorkMode = 'fabric' | 'colorChange' | 'wear' | 'colorCard'
+type ColorCardView = 'front' | 'back'
+/** 换布变体：标准 / 裙子 / 上下装分离 / 上下装双参考 */
+type FabricVariant = 'standard' | 'skirtOnly' | 'separates' | 'separatesDual'
 
 const WORK_MODE_OPTIONS: { id: WorkMode; label: string; hint: string }[] = [
   { id: 'fabric', label: '换布', hint: '布料图替换花纹' },
   { id: 'colorChange', label: '换色', hint: '选色替换，无需布料图' },
   { id: 'wear', label: '上身', hint: '商品穿到模特参考图' },
+  { id: 'colorCard', label: '色卡', hint: '编号色卡批量正背面' },
 ]
+
+const DEFAULT_COLOR_CARD_COUNT = 18
+const MIN_COLOR_CARD_COUNT = 0
+const MAX_COLOR_CARD_COUNT = 99
 
 const FABRIC_VARIANT_OPTIONS: { id: FabricVariant; label: string; hint: string }[] = [
   { id: 'standard', label: '标准', hint: '整件替换（默认）' },
   { id: 'skirtOnly', label: '裙子模式', hint: '只换下装，上衣不变' },
   { id: 'separates', label: '上下装分离', hint: '上衣、下装分别替换' },
+  { id: 'separatesDual', label: '双参考', hint: '上衣、下装分开上传' },
 ]
 
 function loadWorkMode(): WorkMode {
+  if (localStorage.getItem(STORAGE_KEY_COLOR_CARD_MODE) === '1') return 'colorCard'
   if (localStorage.getItem(STORAGE_KEY_WEAR_MODE) === '1') return 'wear'
   if (localStorage.getItem(STORAGE_KEY_COLOR_CHANGE) === '1') return 'colorChange'
   return 'fabric'
@@ -75,9 +90,21 @@ function loadWorkMode(): WorkMode {
 
 function loadFabricVariant(workMode: WorkMode): FabricVariant {
   if (workMode !== 'fabric') return 'standard'
+  if (localStorage.getItem(STORAGE_KEY_SEPARATES_DUAL_MODE) === '1') return 'separatesDual'
   if (localStorage.getItem(STORAGE_KEY_SKIRT_ONLY) === '1') return 'skirtOnly'
   if (localStorage.getItem(STORAGE_KEY_SEPARATES_MODE) === '1') return 'separates'
   return 'standard'
+}
+
+function clampColorCardCount(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_COLOR_CARD_COUNT
+  return Math.min(MAX_COLOR_CARD_COUNT, Math.max(MIN_COLOR_CARD_COUNT, Math.round(value)))
+}
+
+function loadColorCardCount(): number {
+  const stored = localStorage.getItem(STORAGE_KEY_COLOR_CARD_COUNT)
+  if (stored === null) return DEFAULT_COLOR_CARD_COUNT
+  return clampColorCardCount(Number(stored))
 }
 
 interface ImagePreview {
@@ -118,6 +145,12 @@ interface Job {
   isBackView?: boolean
   /** 局部/特写：强制锁构图，禁止补全 */
   isStrictFraming?: boolean
+  /** 色卡模式：编号色号 */
+  colorCardNumber?: number
+  /** 色卡模式：正面 / 背面 */
+  colorCardView?: ColorCardView
+  /** 色卡模式：背面任务是否来自用户上传的背面参考图 */
+  colorCardUsesBackReference?: boolean
 }
 
 function safeBaseName(name: string): string {
@@ -155,10 +188,14 @@ export default function App() {
   })
   const [workMode, setWorkMode] = useState<WorkMode>(() => loadWorkMode())
   const [fabricVariant, setFabricVariant] = useState<FabricVariant>(() => loadFabricVariant(loadWorkMode()))
+  const [colorCardCount, setColorCardCount] = useState(() => loadColorCardCount())
+  const [colorCardCountInput, setColorCardCountInput] = useState(() => String(loadColorCardCount()))
   const colorChangeMode = workMode === 'colorChange'
   const wearMode = workMode === 'wear'
+  const colorCardMode = workMode === 'colorCard'
   const skirtOnlyMode = fabricVariant === 'skirtOnly'
   const separatesMode = fabricVariant === 'separates'
+  const separatesDualMode = fabricVariant === 'separatesDual'
   /** 换色模式选中的颜色 (hex) */
   const [selectedColor, setSelectedColor] = useState<string>('#FF6B6B')
   /** 上身展示模式的参考图 */
@@ -167,6 +204,9 @@ export default function App() {
   const activeSizeOptions = use2kOutput ? SIZE_OPTIONS_2K : SIZE_OPTIONS
 
   const [fabricSource, setFabricSource] = useState<FabricSource | null>(null)
+  const [fabricTopSource, setFabricTopSource] = useState<FabricSource | null>(null)
+  const [fabricBottomSource, setFabricBottomSource] = useState<FabricSource | null>(null)
+  const [colorCardBackSource, setColorCardBackSource] = useState<FabricSource | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null)
   const addedSeqRef = useRef(0)
@@ -176,6 +216,8 @@ export default function App() {
 
   const cancelRef = useRef(false)
   const pasteTargetRef = useRef<PasteTarget>('fabric')
+  const colorCardSourceFileRef = useRef<File | null>(null)
+  const colorCardBackFileRef = useRef<File | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const advancedDetailsRef = useRef<HTMLDetailsElement>(null)
 
@@ -225,20 +267,20 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_SKIRT_ONLY, fabricVariant === 'skirtOnly' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_SEPARATES_MODE, fabricVariant === 'separates' ? '1' : '0')
+    localStorage.setItem(STORAGE_KEY_SEPARATES_DUAL_MODE, fabricVariant === 'separatesDual' ? '1' : '0')
   }, [fabricVariant])
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_COLOR_CHANGE, workMode === 'colorChange' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_WEAR_MODE, workMode === 'wear' ? '1' : '0')
+    localStorage.setItem(STORAGE_KEY_COLOR_CARD_MODE, workMode === 'colorCard' ? '1' : '0')
   }, [workMode])
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_COLOR_CARD_COUNT, String(colorCardCount))
+  }, [colorCardCount])
 
   const selectWorkMode = useCallback((mode: WorkMode) => {
     setWorkMode(mode)
   }, [])
-  useEffect(() => {
-    const opts = use2kOutput ? SIZE_OPTIONS_2K : SIZE_OPTIONS
-    const defaultSize = use2kOutput ? DEFAULT_SIZE_2K : DEFAULT_SIZE
-    setSize((prev) => (opts.includes(prev) ? prev : defaultSize))
-  }, [use2kOutput])
   useEffect(() => {
     pasteTargetRef.current = pasteTarget
   }, [pasteTarget])
@@ -285,6 +327,42 @@ export default function App() {
     })
   }, [])
 
+  const setFabricTopFromFile = useCallback((file: File) => {
+    if (!/^image\//.test(file.type)) return
+    setFabricTopSource((prev) => {
+      if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+      return {
+        file,
+        previewObjectUrl: URL.createObjectURL(file),
+      }
+    })
+  }, [])
+
+  const clearFabricTopSource = useCallback(() => {
+    setFabricTopSource((prev) => {
+      if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+      return null
+    })
+  }, [])
+
+  const setFabricBottomFromFile = useCallback((file: File) => {
+    if (!/^image\//.test(file.type)) return
+    setFabricBottomSource((prev) => {
+      if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+      return {
+        file,
+        previewObjectUrl: URL.createObjectURL(file),
+      }
+    })
+  }, [])
+
+  const clearFabricBottomSource = useCallback(() => {
+    setFabricBottomSource((prev) => {
+      if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+      return null
+    })
+  }, [])
+
   const setWearModeRefFromFile = useCallback((file: File) => {
     if (!/^image\//.test(file.type)) return
     setWearModeRefSource((prev) => {
@@ -303,10 +381,106 @@ export default function App() {
     })
   }, [])
 
+  const buildColorCardJobs = useCallback((frontFile: File, count: number, backFile?: File | null): Job[] => {
+    if (count <= 0) return []
+    const frontPreviewObjectUrl = URL.createObjectURL(frontFile)
+    const backPreviewObjectUrl = backFile ? URL.createObjectURL(backFile) : frontPreviewObjectUrl
+    const jobsForFile: Job[] = []
+    for (let number = 1; number <= count; number++) {
+      for (const view of ['front', 'back'] as const) {
+        const usesBackReference = view === 'back' && Boolean(backFile)
+        jobsForFile.push({
+          id: crypto.randomUUID(),
+          file: usesBackReference ? backFile! : frontFile,
+          previewObjectUrl: usesBackReference ? backPreviewObjectUrl : frontPreviewObjectUrl,
+          status: 'queued',
+          addedSeq: addedSeqRef.current++,
+          colorCardNumber: number,
+          colorCardView: view,
+          colorCardUsesBackReference: usesBackReference,
+          isBackView: view === 'back',
+        })
+      }
+    }
+    return jobsForFile
+  }, [])
+
+  const replaceColorCardJobs = useCallback(
+    (frontFile: File, count: number, backFile: File | null = colorCardBackFileRef.current) => {
+      colorCardSourceFileRef.current = frontFile
+      colorCardBackFileRef.current = backFile
+      const newJobs = buildColorCardJobs(frontFile, count, backFile)
+      setJobs((prev) => {
+        const revoked = new Set<string>()
+        for (const j of prev) {
+          if (j.previewObjectUrl && !revoked.has(j.previewObjectUrl)) {
+            URL.revokeObjectURL(j.previewObjectUrl)
+            revoked.add(j.previewObjectUrl)
+          }
+        }
+        return newJobs
+      })
+      void checkTargetImage(frontFile).then(({ warnings }) => {
+        if (warnings.length === 0) return
+        setJobs((prev) => prev.map((job) => (job.colorCardView === 'front' ? { ...job, warnings } : job)))
+      })
+      if (backFile) {
+        void checkTargetImage(backFile).then(({ warnings }) => {
+          if (warnings.length === 0) return
+          setJobs((prev) => prev.map((job) => (job.colorCardView === 'back' ? { ...job, warnings } : job)))
+        })
+      }
+    },
+    [buildColorCardJobs],
+  )
+
+  const setColorCardBackFromFile = useCallback(
+    (file: File) => {
+      if (!/^image\//.test(file.type)) return
+      setColorCardBackSource((prev) => {
+        if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+        return {
+          file,
+          previewObjectUrl: URL.createObjectURL(file),
+        }
+      })
+      const frontFile = colorCardSourceFileRef.current ?? jobs[0]?.file
+      if (frontFile) replaceColorCardJobs(frontFile, colorCardCount, file)
+      else colorCardBackFileRef.current = file
+    },
+    [colorCardCount, jobs, replaceColorCardJobs],
+  )
+
+  const clearColorCardBackSource = useCallback(() => {
+    setColorCardBackSource((prev) => {
+      if (prev?.previewObjectUrl) URL.revokeObjectURL(prev.previewObjectUrl)
+      return null
+    })
+    colorCardBackFileRef.current = null
+    const frontFile = colorCardSourceFileRef.current ?? jobs[0]?.file
+    if (frontFile) replaceColorCardJobs(frontFile, colorCardCount, null)
+  }, [colorCardCount, jobs, replaceColorCardJobs])
+
+  const updateColorCardCount = useCallback(
+    (value: number, syncInput = true) => {
+      const nextCount = clampColorCardCount(value)
+      setColorCardCount(nextCount)
+      if (syncInput) setColorCardCountInput(String(nextCount))
+      if (!colorCardMode || isRunning) return
+      const sourceFile = colorCardSourceFileRef.current ?? jobs[0]?.file
+      if (sourceFile) replaceColorCardJobs(sourceFile, nextCount)
+    },
+    [colorCardMode, isRunning, jobs, replaceColorCardJobs],
+  )
+
   const addTargetFiles = useCallback(
     (list: FileList | File[]) => {
       const arr = Array.from(list).filter((f) => /^image\//.test(f.type))
       if (arr.length === 0) return
+      if (colorCardMode) {
+        replaceColorCardJobs(arr[0], colorCardCount)
+        return
+      }
       const newJobs: Job[] = arr.map((file) => ({
         id: crypto.randomUUID(),
         file,
@@ -323,7 +497,7 @@ export default function App() {
         })
       }
     },
-    [updateJob],
+    [colorCardCount, colorCardMode, replaceColorCardJobs, updateJob],
   )
 
   const handlePaste = useCallback(
@@ -334,12 +508,27 @@ export default function App() {
       const files = getImageFilesFromDataTransfer(dt)
       if (files.length === 0) return
       e.preventDefault()
-      if (target === 'fabric') {
+      if (target === 'colorCardBack') {
+        setColorCardBackFromFile(files[0])
+      } else if (target === 'fabricTop') {
+        setFabricTopFromFile(files[0])
+      } else if (target === 'fabricBottom') {
+        setFabricBottomFromFile(files[0])
+      } else if (target === 'fabric') {
         if (workMode === 'wear') setWearModeRefFromFile(files[0])
         else setFabricFromFile(files[0])
       } else addTargetFiles(files)
     },
-    [addTargetFiles, isRunning, setFabricFromFile, setWearModeRefFromFile, workMode],
+    [
+      addTargetFiles,
+      isRunning,
+      setColorCardBackFromFile,
+      setFabricBottomFromFile,
+      setFabricFromFile,
+      setFabricTopFromFile,
+      setWearModeRefFromFile,
+      workMode,
+    ],
   )
 
   useEffect(() => {
@@ -355,15 +544,23 @@ export default function App() {
   const removeJob = useCallback((id: string) => {
     setJobs((prev) => {
       const j = prev.find((x) => x.id === id)
-      if (j?.previewObjectUrl) URL.revokeObjectURL(j.previewObjectUrl)
-      return prev.filter((x) => x.id !== id)
+      const next = prev.filter((x) => x.id !== id)
+      if (j?.previewObjectUrl && !next.some((x) => x.previewObjectUrl === j.previewObjectUrl)) {
+        URL.revokeObjectURL(j.previewObjectUrl)
+      }
+      return next
     })
   }, [])
 
   const clearJobs = useCallback(() => {
+    colorCardSourceFileRef.current = null
     setJobs((prev) => {
+      const revoked = new Set<string>()
       for (const j of prev) {
-        if (j.previewObjectUrl) URL.revokeObjectURL(j.previewObjectUrl)
+        if (j.previewObjectUrl && !revoked.has(j.previewObjectUrl)) {
+          URL.revokeObjectURL(j.previewObjectUrl)
+          revoked.add(j.previewObjectUrl)
+        }
       }
       return []
     })
@@ -387,8 +584,12 @@ export default function App() {
       alert('请填写接口地址。')
       return
     }
-    if (!colorChangeMode && !wearMode && !fabricSource) {
-      alert('请先上传「布料图」或「商品图」')
+    if (!colorChangeMode && !wearMode && !colorCardMode && separatesDualMode && (!fabricTopSource || !fabricBottomSource)) {
+      alert('请先上传「上衣参考图」和「下装参考图」')
+      return
+    }
+    if (!colorChangeMode && !wearMode && !separatesDualMode && !fabricSource) {
+      alert(colorCardMode ? '请先上传「编号色卡图」' : '请先上传「布料图」或「商品图」')
       return
     }
     if (wearMode && !wearModeRefSource) {
@@ -396,7 +597,7 @@ export default function App() {
       return
     }
     if (jobs.length === 0) {
-      alert(wearMode ? '请至少上传一张「商品图」' : '请至少上传一张「要换的图」')
+      alert(colorCardMode ? '请上传一张「正面模特参考图」' : wearMode ? '请至少上传一张「商品图」' : '请至少上传一张「要换的图」')
       return
     }
 
@@ -413,25 +614,44 @@ export default function App() {
     const solidPrompt = useEditsApi ? PROMPT_SOLID_FABRIC_EDIT : PROMPT_SOLID_FABRIC
     const skirtOnlyPrompt = useEditsApi ? PROMPT_SKIRT_ONLY_EDIT : PROMPT_SKIRT_ONLY
     const separatesPrompt = useEditsApi ? PROMPT_SEPARATES_MODE_EDIT : PROMPT_SEPARATES_MODE
+    const separatesDualPrompt = useEditsApi ? PROMPT_SEPARATES_DUAL_MODE_EDIT : PROMPT_SEPARATES_DUAL_MODE
 
     const fullPrompt = [
-      wearMode ? (useEditsApi ? PROMPT_WEAR_MODE_EDIT : PROMPT_WEAR_MODE) : buildPrompt(queue.length > 1),
-      wearMode ? '' : DEFAULT_PROMPT_SUFFIX,
-      isSolidFabric ? solidPrompt : '',
-      skirtOnlyMode ? skirtOnlyPrompt : '',
-      separatesMode ? separatesPrompt : '',
-      colorChangeMode ? PROMPT_COLOR_CHANGE : '',
-      colorChangeMode ? `Target color: ${selectedColor}` : '',
+      colorCardMode
+        ? ''
+        : colorChangeMode
+          ? buildColorChangePrompt(useEditsApi, selectedColor)
+          : wearMode
+            ? (useEditsApi ? PROMPT_WEAR_MODE_EDIT : PROMPT_WEAR_MODE)
+            : separatesDualMode
+              ? separatesDualPrompt
+              : buildPrompt(queue.length > 1),
+      wearMode || colorCardMode || separatesDualMode || colorChangeMode ? '' : DEFAULT_PROMPT_SUFFIX,
+      !colorChangeMode && !separatesDualMode && isSolidFabric ? solidPrompt : '',
+      !colorChangeMode && skirtOnlyMode ? skirtOnlyPrompt : '',
+      !colorChangeMode && separatesMode ? separatesPrompt : '',
       promptExtra.trim(),
     ]
       .filter(Boolean)
       .join('\n\n')
 
     let fabricPayload: string | undefined
+    let fabricTopPayload: string | undefined
+    let fabricBottomPayload: string | undefined
     let wearRefPayload: string | undefined
-    if (!useEditsApi && !colorChangeMode && !wearMode && fabricSource) {
+    if (!useEditsApi && !colorChangeMode && !wearMode && !separatesDualMode && fabricSource) {
       try {
         fabricPayload = await encodeImage(fabricSource.file)
+      } catch (e) {
+        setIsRunning(false)
+        alert(e instanceof Error ? e.message : String(e))
+        return
+      }
+    }
+    if (!useEditsApi && separatesDualMode && fabricTopSource && fabricBottomSource) {
+      try {
+        fabricTopPayload = await encodeImage(fabricTopSource.file)
+        fabricBottomPayload = await encodeImage(fabricBottomSource.file)
       } catch (e) {
         setIsRunning(false)
         alert(e instanceof Error ? e.message : String(e))
@@ -469,11 +689,31 @@ export default function App() {
 
         const jobPromptSuffix = buildPerJobPromptSuffix({
           warnings: job.warnings ?? [],
-          isBackView: job.isBackView === true,
+          isBackView: colorCardMode ? false : job.isBackView === true,
           isStrictFraming: job.isStrictFraming === true,
           forEdits: useEditsApi,
         })
-        const prompt = [fullPrompt, jobPromptSuffix].filter(Boolean).join('\n\n')
+        const colorCardPrompt =
+          colorCardMode && job.colorCardNumber
+            ? useEditsApi
+              ? buildColorCardPromptForEdits(
+                  job.colorCardNumber,
+                  job.colorCardView ?? 'front',
+                  job.colorCardUsesBackReference === true,
+                )
+              : buildColorCardPrompt(
+                  job.colorCardNumber,
+                  job.colorCardView ?? 'front',
+                  job.colorCardUsesBackReference === true,
+                )
+            : ''
+        const prompt = [
+          colorCardPrompt || fullPrompt,
+          jobPromptSuffix,
+          colorCardMode ? promptExtra.trim() : '',
+        ]
+          .filter(Boolean)
+          .join('\n\n')
 
         let imageDataUrl: string
         if (useEditsApi) {
@@ -487,7 +727,11 @@ export default function App() {
               aspect_ratio: jobAspect,
               images: colorChangeMode
                 ? [job.file]
-                : wearMode
+                : colorCardMode
+                  ? [job.file, fabricSource!.file]
+                  : separatesDualMode
+                    ? [job.file, fabricTopSource!.file, fabricBottomSource!.file]
+                  : wearMode
                   ? [wearModeRefSource!.file, job.file]
                   : [job.file, fabricSource!.file],
             },
@@ -501,7 +745,13 @@ export default function App() {
             prompt,
             size: jobSize,
             aspect_ratio: jobAspect,
-            image: wearMode ? [garmentPayload, wearRefPayload!] : [fabricPayload!, garmentPayload],
+            image: colorCardMode
+              ? [fabricPayload!, garmentPayload]
+              : separatesDualMode
+                ? [fabricTopPayload!, fabricBottomPayload!, garmentPayload]
+              : wearMode
+                ? [garmentPayload, wearRefPayload!]
+                : [fabricPayload!, garmentPayload],
           }
           const result = await postImagesGenerations(base, token, genBody, ac.signal)
           imageDataUrl = result.imageDataUrl
@@ -542,26 +792,41 @@ export default function App() {
     apiBase,
     apiToken,
     aspectRatio,
+    colorChangeMode,
+    colorCardMode,
     encodeImage,
-    workMode,
+    fabricBottomSource,
     fabricSource,
+    fabricTopSource,
     followTargetAspect,
     isSolidFabric,
     jobs,
     model,
     promptExtra,
-    fabricVariant,
+    separatesDualMode,
+    separatesMode,
     selectedColor,
     size,
+    skirtOnlyMode,
     updateJob,
     use2kOutput,
     useEditsApi,
+    wearMode,
     wearModeRefSource,
   ])
 
   const displayJobs = useMemo(() => {
     const rank = (s: JobStatus) => (s === 'done' ? 0 : s === 'running' ? 1 : s === 'queued' ? 2 : 3)
     return [...jobs].sort((a, b) => {
+      if (colorCardMode) {
+        const an = a.colorCardNumber ?? Number.MAX_SAFE_INTEGER
+        const bn = b.colorCardNumber ?? Number.MAX_SAFE_INTEGER
+        if (an !== bn) return an - bn
+        const av = a.colorCardView === 'back' ? 1 : 0
+        const bv = b.colorCardView === 'back' ? 1 : 0
+        if (av !== bv) return av - bv
+        return a.addedSeq - b.addedSeq
+      }
       const ra = rank(a.status)
       const rb = rank(b.status)
       if (ra !== rb) return ra - rb
@@ -570,25 +835,59 @@ export default function App() {
       }
       return a.addedSeq - b.addedSeq
     })
-  }, [jobs])
+  }, [colorCardMode, jobs])
 
   const canStart = colorChangeMode
     ? Boolean(jobs.length > 0 && apiToken.trim())
-    : wearMode
-      ? Boolean(wearModeRefSource && jobs.length > 0 && apiToken.trim())
-      : Boolean(fabricSource && jobs.length > 0 && apiToken.trim())
+    : colorCardMode
+      ? Boolean(fabricSource && jobs.length > 0 && apiToken.trim())
+      : wearMode
+        ? Boolean(wearModeRefSource && jobs.length > 0 && apiToken.trim())
+        : separatesDualMode
+          ? Boolean(fabricTopSource && fabricBottomSource && jobs.length > 0 && apiToken.trim())
+          : Boolean(fabricSource && jobs.length > 0 && apiToken.trim())
 
   const openImagePreview = (src: string, label: string) => {
     setImagePreview({ src, label })
+  }
+
+  const jobDisplayName = (job: Job) => {
+    if (job.colorCardNumber) {
+      const viewLabel = job.colorCardView === 'back' ? '背面' : '正面'
+      return `色卡 ${job.colorCardNumber} · ${viewLabel}`
+    }
+    return job.file.name
+  }
+
+  const jobResultLabel = (job: Job) => {
+    if (job.colorCardNumber) {
+      const viewLabel = job.colorCardView === 'back' ? '背面图' : '正面图'
+      return `色卡 ${job.colorCardNumber} ${viewLabel}`
+    }
+    return '换布后'
+  }
+
+  const jobDownloadStem = (job: Job) => {
+    if (job.colorCardNumber) {
+      const number = String(job.colorCardNumber).padStart(2, '0')
+      const view = job.colorCardView === 'back' ? '背面' : '正面'
+      return `色卡${number}_${view}`
+    }
+    return `${safeBaseName(job.file.name.replace(/\.[^.]+$/, ''))}_换布结果`
+  }
+
+  const jobReferenceLabel = (job: Job) => {
+    if (!job.colorCardNumber) return '目标图'
+    if (job.colorCardView === 'back' && job.colorCardUsesBackReference) return '背面参考'
+    return '正面参考'
   }
 
   const downloadOne = (job: Job) => {
     if (!job.resultDataUrl) return
     const a = document.createElement('a')
     a.href = job.resultDataUrl
-    const stem = safeBaseName(job.file.name.replace(/\.[^.]+$/, ''))
     const ext = job.resultDataUrl.startsWith('data:image/png') ? 'png' : extensionFromMime(job.file)
-    a.download = `${stem}_换布结果.${ext}`
+    a.download = `${jobDownloadStem(job)}.${ext}`
     a.click()
   }
 
@@ -602,11 +901,10 @@ export default function App() {
     for (const job of done) {
       const res = await fetch(job.resultDataUrl!)
       const blob = await res.blob()
-      const stem = safeBaseName(job.file.name.replace(/\.[^.]+$/, ''))
-      zip.file(`${stem}_换布结果.png`, blob)
+      zip.file(`${jobDownloadStem(job)}.png`, blob)
     }
     const out = await zip.generateAsync({ type: 'blob' })
-    saveAs(out, `换布结果-${new Date().toISOString().slice(0, 10)}.zip`)
+    saveAs(out, `${colorCardMode ? '色卡结果' : '换布结果'}-${new Date().toISOString().slice(0, 10)}.zip`)
   }
 
   return (
@@ -696,7 +994,13 @@ export default function App() {
                   <input
                     type="checkbox"
                     checked={use2kOutput}
-                    onChange={(e) => setUse2kOutput(e.target.checked)}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      const opts = checked ? SIZE_OPTIONS_2K : SIZE_OPTIONS
+                      const defaultSize = checked ? DEFAULT_SIZE_2K : DEFAULT_SIZE
+                      setUse2kOutput(checked)
+                      setSize((prev) => (opts.includes(prev) ? prev : defaultSize))
+                    }}
                   />
                   2K 高清输出（更慢、费用更高；若网关不支持会报错）
                 </label>
@@ -805,6 +1109,15 @@ export default function App() {
           </div>
         )}
 
+        {workMode === 'fabric' && separatesDualMode && (
+          <div className="mode-panel-note" style={{ marginTop: 12, padding: '10px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8 }}>
+            <p style={{ margin: 0, fontSize: 13, color: '#1d4ed8', lineHeight: 1.5 }}>
+              <strong> 双参考提示：</strong>
+              上衣参考图只放上衣，下装参考图只放裤子/裙子，模型会分别替换目标图里的上衣和下装，避免上下装花纹混用。
+            </p>
+          </div>
+        )}
+
         {colorChangeMode && (
           <div className="mode-panel-section mode-panel-sub mode-panel-color">
             <span className="mode-panel-label">目标颜色</span>
@@ -835,11 +1148,39 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {colorCardMode && (
+          <div className="mode-panel-section mode-panel-sub mode-panel-color-card">
+            <span className="mode-panel-label">色号数量</span>
+            <label className="color-card-count-field">
+              <input
+                type="number"
+                min={MIN_COLOR_CARD_COUNT}
+                max={MAX_COLOR_CARD_COUNT}
+                step={1}
+                value={colorCardCountInput}
+                disabled={isRunning}
+                onChange={(e) => {
+                  const nextValue = e.currentTarget.value
+                  setColorCardCountInput(nextValue)
+                  if (nextValue.trim() === '') return
+                  updateColorCardCount(Number(nextValue), false)
+                }}
+                onBlur={() => setColorCardCountInput(String(colorCardCount))}
+              />
+              <span>
+                {colorCardCount > 0
+                  ? `自动生成 1-${colorCardCount} 号，每个色号正面和背面各 1 张`
+                  : '当前不展开色号任务'}
+              </span>
+            </label>
+          </div>
+        )}
       </section>
 
       <main className="app-main">
-        <div className="upload-steps-row">
-          {!colorChangeMode && !wearMode && (
+        <div className={`upload-steps-row${colorCardMode || separatesDualMode ? ' compact-upload-row' : ''}`}>
+          {!colorChangeMode && !wearMode && !separatesDualMode && (
           <section
             className={`step-card step-card-upload paste-zone${pasteTarget === 'fabric' ? ' paste-zone-active' : ''}${fabricSource ? ' step-card-done' : ''}`}
             tabIndex={0}
@@ -849,17 +1190,23 @@ export default function App() {
           >
             <div className="step-card-head">
               <span className="step-badge">第 1 步</span>
-              <h2>上传「布料图」</h2>
+              <h2>{colorCardMode ? '上传「编号色卡图」' : '上传「布料图」'}</h2>
             </div>
-            <label className="job-back-toggle fabric-solid-toggle">
-              <input
-                type="checkbox"
-                checked={isSolidFabric}
-                disabled={isRunning}
-                onChange={(e) => setIsSolidFabric(e.target.checked)}
-              />
-              纯色布料（无印花，按颜色 + 肌理替换）
-            </label>
+            {colorCardMode ? (
+              <p className="step-desc">
+                上传带编号的格子色卡。生成时会自动读取每个编号对应的格子配色。
+              </p>
+            ) : (
+              <label className="job-back-toggle fabric-solid-toggle">
+                <input
+                  type="checkbox"
+                  checked={isSolidFabric}
+                  disabled={isRunning}
+                  onChange={(e) => setIsSolidFabric(e.target.checked)}
+                />
+                纯色布料（无印花，按颜色 + 肌理替换）
+              </label>
+            )}
 
             <div className="upload-card">
               <div className={`preview-box${fabricSource ? '' : ' empty'}`}>
@@ -868,9 +1215,9 @@ export default function App() {
                     type="button"
                     className="preview-image-btn"
                     title="点击查看大图"
-                    onClick={() => openImagePreview(fabricSource.previewObjectUrl, '布料图')}
+                    onClick={() => openImagePreview(fabricSource.previewObjectUrl, colorCardMode ? '编号色卡图' : '布料图')}
                   >
-                    <img src={fabricSource.previewObjectUrl} alt="布料图预览" />
+                    <img src={fabricSource.previewObjectUrl} alt={colorCardMode ? '编号色卡图预览' : '布料图预览'} />
                   </button>
                 ) : (
                   <span className="preview-placeholder">点击右侧按钮或粘贴图片</span>
@@ -904,6 +1251,128 @@ export default function App() {
               </div>
             </div>
           </section>
+          )}
+
+          {workMode === 'fabric' && separatesDualMode && (
+          <>
+            <section
+              className={`step-card step-card-upload paste-zone${pasteTarget === 'fabricTop' ? ' paste-zone-active' : ''}${fabricTopSource ? ' step-card-done' : ''}`}
+              tabIndex={0}
+              onFocus={() => setPasteTarget('fabricTop')}
+              onMouseDown={() => setPasteTarget('fabricTop')}
+              onPaste={(e) => handlePaste(e, 'fabricTop')}
+            >
+              <div className="step-card-head">
+                <span className="step-badge">第 1 步</span>
+                <h2>上传「上衣参考图」</h2>
+              </div>
+              <p className="step-desc">
+                只放上衣布料/颜色/花纹。生成时只用于目标图上衣。
+              </p>
+
+              <div className="upload-card">
+                <div className={`preview-box${fabricTopSource ? '' : ' empty'}`}>
+                  {fabricTopSource ? (
+                    <button
+                      type="button"
+                      className="preview-image-btn"
+                      title="点击查看大图"
+                      onClick={() => openImagePreview(fabricTopSource.previewObjectUrl, '上衣参考图')}
+                    >
+                      <img src={fabricTopSource.previewObjectUrl} alt="上衣参考图预览" />
+                    </button>
+                  ) : (
+                    <span className="preview-placeholder">点击右侧按钮或粘贴图片</span>
+                  )}
+                </div>
+                <div className="upload-card-actions">
+                  <label className="btn btn-secondary">
+                    选择上衣图
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={isRunning}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) setFabricTopFromFile(f)
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={isRunning || !fabricTopSource}
+                    onClick={clearFabricTopSource}
+                  >
+                    重新选择
+                  </button>
+                  <p className="upload-tip">
+                    先点一下本区域，再按 <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>V</kbd> 可粘贴截图
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section
+              className={`step-card step-card-upload paste-zone${pasteTarget === 'fabricBottom' ? ' paste-zone-active' : ''}${fabricBottomSource ? ' step-card-done' : ''}`}
+              tabIndex={0}
+              onFocus={() => setPasteTarget('fabricBottom')}
+              onMouseDown={() => setPasteTarget('fabricBottom')}
+              onPaste={(e) => handlePaste(e, 'fabricBottom')}
+            >
+              <div className="step-card-head">
+                <span className="step-badge">第 2 步</span>
+                <h2>上传「下装参考图」</h2>
+              </div>
+              <p className="step-desc">
+                只放裤子/裙子布料/颜色/花纹。生成时只用于目标图下装。
+              </p>
+
+              <div className="upload-card">
+                <div className={`preview-box${fabricBottomSource ? '' : ' empty'}`}>
+                  {fabricBottomSource ? (
+                    <button
+                      type="button"
+                      className="preview-image-btn"
+                      title="点击查看大图"
+                      onClick={() => openImagePreview(fabricBottomSource.previewObjectUrl, '下装参考图')}
+                    >
+                      <img src={fabricBottomSource.previewObjectUrl} alt="下装参考图预览" />
+                    </button>
+                  ) : (
+                    <span className="preview-placeholder">点击右侧按钮或粘贴图片</span>
+                  )}
+                </div>
+                <div className="upload-card-actions">
+                  <label className="btn btn-secondary">
+                    选择下装图
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={isRunning}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) setFabricBottomFromFile(f)
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={isRunning || !fabricBottomSource}
+                    onClick={clearFabricBottomSource}
+                  >
+                    重新选择
+                  </button>
+                  <p className="upload-tip">
+                    先点一下本区域，再按 <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>V</kbd> 可粘贴截图
+                  </p>
+                </div>
+              </div>
+            </section>
+          </>
           )}
 
           {wearMode && (
@@ -975,11 +1444,15 @@ export default function App() {
             onPaste={(e) => handlePaste(e, 'target')}
           >
             <div className="step-card-head">
-              <span className="step-badge">{colorChangeMode ? '最后一步' : wearMode ? '第 2 步' : '第 2 步'}</span>
-              <h2>{wearMode ? '上传「商品图」' : '上传「要换的图」'}</h2>
+              <span className="step-badge">{colorChangeMode ? '最后一步' : separatesDualMode ? '第 3 步' : '第 2 步'}</span>
+              <h2>{colorCardMode ? '上传「正面模特参考图」' : wearMode ? '上传「商品图」' : '上传「要换的图」'}</h2>
             </div>
             <p className="step-desc">
-              {wearMode ? (
+              {colorCardMode ? (
+                <>
+                  必传。按当前色号数量生成正面任务，并配套背面任务。
+                </>
+              ) : wearMode ? (
                 <>
                   请传<strong>平铺/挂拍商品图</strong>（要上身展示的衣服），可多张批量；每张会分别穿到模特参考图上。
                 </>
@@ -1004,13 +1477,13 @@ export default function App() {
               }}
             >
               <p className="dropzone-title">拖入图片，或点击选择</p>
-              <p className="dropzone-sub">支持多选 · 粘贴前请先点一下本区域</p>
+              <p className="dropzone-sub">{colorCardMode ? '只取第一张 · 粘贴前请先点一下本区域' : '支持多选 · 粘贴前请先点一下本区域'}</p>
               <label className="btn btn-secondary dropzone-btn">
-                选择多张图片
+                {colorCardMode ? '选择正面图' : '选择多张图片'}
                 <input
                   type="file"
                   accept="image/*"
-                  multiple
+                  multiple={!colorCardMode}
                   disabled={isRunning}
                   onChange={(e) => {
                     if (e.target.files?.length) addTargetFiles(e.target.files)
@@ -1021,15 +1494,80 @@ export default function App() {
             </div>
 
             {jobs.length > 0 ? (
-              <p className="target-count">已添加 {jobs.length} 张</p>
+              <p className="target-count">
+                {colorCardMode
+                  ? `已展开 ${jobs.length} 个生成任务（${colorCardCount} 个色号 × 正背面；${colorCardBackSource ? '背面使用参考图' : '背面由模型生成'}）`
+                  : `已添加 ${jobs.length} 张`}
+              </p>
             ) : null}
           </section>
+
+          {colorCardMode && (
+          <section
+            className={`step-card step-card-upload paste-zone${pasteTarget === 'colorCardBack' ? ' paste-zone-active' : ''}${colorCardBackSource ? ' step-card-done' : ''}`}
+            tabIndex={0}
+            onFocus={() => setPasteTarget('colorCardBack')}
+            onMouseDown={() => setPasteTarget('colorCardBack')}
+            onPaste={(e) => handlePaste(e, 'colorCardBack')}
+          >
+            <div className="step-card-head">
+              <span className="step-badge">第 3 步</span>
+              <h2>上传「背面模特参考图」</h2>
+            </div>
+            <p className="step-desc">
+              可选。上传后按背面图换色；不上传则由模型生成背面。
+            </p>
+
+            <div className="upload-card">
+              <div className={`preview-box${colorCardBackSource ? '' : ' empty'}`}>
+                {colorCardBackSource ? (
+                  <button
+                    type="button"
+                    className="preview-image-btn"
+                    title="点击查看大图"
+                    onClick={() => openImagePreview(colorCardBackSource.previewObjectUrl, '背面模特参考图')}
+                  >
+                    <img src={colorCardBackSource.previewObjectUrl} alt="背面模特参考图预览" />
+                  </button>
+                ) : (
+                  <span className="preview-placeholder">可不上传，背面将由模型生成</span>
+                )}
+              </div>
+              <div className="upload-card-actions">
+                <label className="btn btn-secondary">
+                  选择背面图
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={isRunning}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) setColorCardBackFromFile(f)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={isRunning || !colorCardBackSource}
+                  onClick={clearColorCardBackSource}
+                >
+                  不使用背面图
+                </button>
+                <p className="upload-tip">
+                  先点一下本区域，再按 <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>V</kbd> 可粘贴截图
+                </p>
+              </div>
+            </div>
+          </section>
+          )}
         </div>
 
         <section className="step-card step-card-action">
             <div className="step-card-head">
-              <span className="step-badge step-badge-accent">{wearMode ? '第 3 步' : '第 3 步'}</span>
-              <h2>生成同一套衣服的多张图</h2>
+              <span className="step-badge step-badge-accent">{colorCardMode || separatesDualMode ? '第 4 步' : colorChangeMode ? '第 2 步' : '第 3 步'}</span>
+              <h2>{colorCardMode ? '按色卡批量生成正面和背面' : '生成同一套衣服的多张图'}</h2>
             </div>
 
             <div className="action-row">
@@ -1054,18 +1592,32 @@ export default function App() {
               >
                 打包下载（{jobStats.done}）
               </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={isRunning || jobs.length === 0}
+                onClick={clearJobs}
+              >
+                {colorCardMode ? '清空全部色卡任务' : '清空全部目标图'}
+              </button>
             </div>
 
             {!canStart && !isRunning ? (
               <p className="action-hint">
                 {!apiToken.trim()
                   ? '请先在顶部填写 API 密钥'
-                  : wearMode && !wearModeRefSource
+                  : colorCardMode && !fabricSource
+                    ? '请先上传编号色卡图'
+                    : separatesDualMode && (!fabricTopSource || !fabricBottomSource)
+                      ? '请先上传上衣参考图和下装参考图'
+                    : wearMode && !wearModeRefSource
                     ? '请先上传模特参考图'
-                    : !wearMode && !colorChangeMode && !fabricSource
+                    : !wearMode && !colorChangeMode && !separatesDualMode && !fabricSource
                       ? '请先完成第 1 步'
                       : jobs.length === 0
-                        ? wearMode
+                        ? colorCardMode
+                          ? '请上传正面模特参考图'
+                          : wearMode
                           ? '请上传商品图'
                           : '请上传要换的图'
                         : '请完成上述步骤'}
@@ -1084,6 +1636,9 @@ export default function App() {
           {jobs.length > 0 ? (
             <section className="results-section">
               <h2 className="results-heading">生成结果</h2>
+              {colorCardMode ? (
+                <p className="results-subheading">按色卡编号排序，每个色号正面图后紧跟背面图。</p>
+              ) : null}
               <div className="job-grid">
                 {displayJobs.map((job) => (
                   <article
@@ -1091,20 +1646,22 @@ export default function App() {
                     className={`job-card${job.warnings?.length ? ' job-card-warn' : ''}`}
                   >
                     <div className="job-card-head">
-                      <span className="job-name" title={job.file.name}>
-                        {job.file.name}
+                      <span className="job-name" title={jobDisplayName(job)}>
+                        {jobDisplayName(job)}
                       </span>
                       <span className={`status status-${job.status}`}>{STATUS_LABEL[job.status]}</span>
                     </div>
-                    <label className="job-back-toggle">
-                      <input
-                        type="checkbox"
-                        checked={job.isBackView === true}
-                        disabled={isRunning}
-                        onChange={(e) => updateJob(job.id, { isBackView: e.target.checked })}
-                      />
-                      背面图（禁止翻正面）
-                    </label>
+                    {!colorCardMode ? (
+                      <label className="job-back-toggle">
+                        <input
+                          type="checkbox"
+                          checked={job.isBackView === true}
+                          disabled={isRunning}
+                          onChange={(e) => updateJob(job.id, { isBackView: e.target.checked })}
+                        />
+                        背面图（禁止翻正面）
+                      </label>
+                    ) : null}
                     <label className="job-back-toggle">
                       <input
                         type="checkbox"
@@ -1120,11 +1677,11 @@ export default function App() {
                           type="button"
                           className="job-image-btn"
                           title="点击查看大图"
-                          onClick={() => openImagePreview(job.previewObjectUrl, `目标图 — ${job.file.name}`)}
+                          onClick={() => openImagePreview(job.previewObjectUrl, `${jobReferenceLabel(job)} — ${jobDisplayName(job)}`)}
                         >
-                          <img src={job.previewObjectUrl} alt="目标图" />
+                          <img src={job.previewObjectUrl} alt={jobReferenceLabel(job)} />
                         </button>
-                        <figcaption>目标图</figcaption>
+                        <figcaption>{jobReferenceLabel(job)}</figcaption>
                       </figure>
                       <figure>
                         {job.resultDataUrl ? (
@@ -1132,16 +1689,16 @@ export default function App() {
                             type="button"
                             className="job-image-btn"
                             title="点击查看大图"
-                            onClick={() => openImagePreview(job.resultDataUrl!, `换布后 — ${job.file.name}`)}
+                            onClick={() => openImagePreview(job.resultDataUrl!, jobResultLabel(job))}
                           >
-                            <img src={job.resultDataUrl} alt="换布后" />
+                            <img src={job.resultDataUrl} alt={jobResultLabel(job)} />
                           </button>
                         ) : (
                           <span className="result-placeholder">
                             {job.status === 'running' ? '生成中…' : job.status === 'error' ? '生成失败' : '等待生成'}
                           </span>
                         )}
-                        <figcaption>换布后</figcaption>
+                        <figcaption>{jobResultLabel(job)}</figcaption>
                       </figure>
                     </div>
                     {job.warnings && job.warnings.length > 0 ? (
@@ -1167,11 +1724,6 @@ export default function App() {
                     </div>
                   </article>
                 ))}
-              </div>
-              <div className="results-footer">
-                <button type="button" className="btn btn-ghost" disabled={isRunning} onClick={clearJobs}>
-                  清空全部目标图
-                </button>
               </div>
             </section>
           ) : null}

@@ -182,6 +182,30 @@
   min-width: 4.5rem;
 }
 
+.mode-panel-color-card {
+  align-items: center;
+}
+
+.color-card-count-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.color-card-count-field input {
+  width: 5rem;
+  box-sizing: border-box;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--fg);
+  font: inherit;
+}
+
 .app-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -491,6 +515,68 @@
   padding-top: 0.5rem;
 }
 
+.compact-upload-row {
+  align-items: start;
+}
+
+.compact-upload-row .step-card-upload {
+  min-height: 0;
+  padding: 0.9rem 1rem;
+}
+
+.compact-upload-row .step-card-head {
+  margin-bottom: 0.35rem;
+}
+
+.compact-upload-row .step-card-head h2 {
+  font-size: 1rem;
+}
+
+.compact-upload-row .step-desc {
+  margin-bottom: 0.55rem;
+  min-height: 2.6em;
+  line-height: 1.4;
+}
+
+.compact-upload-row .upload-card {
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.compact-upload-row .preview-box {
+  width: 118px;
+  height: 118px;
+  max-width: 118px;
+  margin: 0;
+}
+
+.compact-upload-row .dropzone {
+  min-height: 7.5rem;
+  padding: 0.9rem;
+}
+
+.compact-upload-row .dropzone-title {
+  font-size: 0.95rem;
+}
+
+.compact-upload-row .dropzone-sub {
+  margin-bottom: 0.65rem;
+}
+
+.compact-upload-row .upload-card-actions {
+  gap: 0.4rem;
+}
+
+.compact-upload-row .upload-tip {
+  font-size: 0.75rem;
+}
+
+.compact-upload-row .target-count {
+  margin-top: 0.5rem;
+  padding-top: 0;
+}
+
 @media (max-width: 900px) {
   .upload-steps-row {
     grid-template-columns: 1fr;
@@ -503,6 +589,16 @@
 
   .upload-steps-row .dropzone {
     min-height: 10rem;
+  }
+
+  .compact-upload-row .preview-box {
+    width: 112px;
+    height: 112px;
+    max-width: 112px;
+  }
+
+  .compact-upload-row .dropzone {
+    min-height: 7rem;
   }
 }
 
@@ -728,8 +824,11 @@
   font-weight: 700;
 }
 
-.results-footer {
-  margin-top: 1rem;
+.results-subheading {
+  margin: -0.5rem 0 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
 }
 
 .job-grid {

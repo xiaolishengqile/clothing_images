@@ -179,21 +179,25 @@ export const PROMPT_SOLID_FABRIC = `SOLID FABRIC MODE — image 1 has little or 
 
 /** 一键换色模式 — 核心：仅改色相，保留图案/肌理/褶皱/缝线 */
 const PROMPT_COLOR_CHANGE_CORE = `COLOR CHANGE MODE — recolor garment cloth only (mandatory):
-- Change ONLY the hue of garment cloth to the user-specified target color. This is a dye/recolor on the existing fabric — NOT a redesign or re-texture.
+- Change ONLY the recolorable colored regions of garment cloth to the user-specified target color. This is a selective dye/recolor on the existing fabric — NOT a redesign, re-texture, or global color filter.
+- For printed / patterned garments, recolor only the original colored motif or dominant colored fabric regions. Protect white, off-white, cream, light beige, pale gray, black, and other neutral background / negative-space areas from color contamination.
 - The base photo is the sole authority for pattern layout, weave, folds, seams, and every surface detail.
 - Output must look like the same photograph with the garment dyed — not a newly rendered outfit.
-- Keep realistic shading: darker fold areas stay darker, highlights stay bright; only shift color inside existing shadow/highlight geometry.
+- Keep realistic shading: darker fold areas stay darker, highlights stay bright; only shift color inside the allowed recolorable regions while preserving original luminance.
 - Forbidden: changing garment style, cut, fit, or silhouette. Forbidden: flattening, smoothing, or beautifying the cloth.
+- Forbidden: applying a global tint, color cast, or color wash to the whole image or to protected neutral cloth areas.
 - Background, model, face, hair, pose, accessories, props, lighting, crop, and composition remain 100% unchanged.`
 
 /** 换色 — 图案/肌理/褶皱/拼接细节锁 */
 const PROMPT_COLOR_PATTERN_LOCK = `PATTERN & SURFACE DETAIL LOCK — preserve ALL cloth structure from the base photo (mandatory):
 - Preserve exact pattern type and layout: gingham, plaid, check, stripe, floral, or print — same scale, repeat size, grid proportions
-- Preserve white or contrast squares/lines and their proportions; recolor only the non-white / dominant color areas to the target hue.
+- Preserve white, off-white, cream, pale, and neutral base areas exactly as neutral fabric. They must NOT become green, blue, red, yellow, pink, or any target-color tint.
+- Preserve contrast squares/lines and their proportions; recolor only the non-white / non-neutral dominant color areas to the target hue.
+- Treat white floral backgrounds, white pant bases, white plaid squares, white stripes, white negative space, pale highlights, and neutral thread as a protected mask.
 - Preserve weave, crinkle, seersucker ridges, gauze grain, knit texture, and all micro-surface detail — do NOT flatten into a solid color field.
 - Preserve every fold, wrinkle, crease, drape shadow, and highlight exactly — shadow lines and depth cues must match the original photo.
 - Preserve construction details: seam lines, topstitching, panel joins, placket edges, collar/cuff ruffle layers, buttonholes, buttons, and color-block boundaries — recolor each cloth panel but keep seam geometry and stitching visible.
-- Forbidden: removing prints or patterns; inventing new patterns; changing check/plaid scale; smoothing wrinkles; erasing seam lines or panel joins.
+- Forbidden: removing prints or patterns; inventing new patterns; changing check/plaid scale; smoothing wrinkles; erasing seam lines or panel joins; tinting protected white/neutral background areas.
 - If the original cloth is solid (no print), keep it solid in the target color while preserving weave texture and fold shadows.`
 
 function buildColorChangeStructureLock(baseLabel: string): string {
@@ -212,11 +216,11 @@ function buildColorChangeFramingLock(baseLabel: string): string {
   return `FRAMING LOCK — ${baseLabel} canvas is sacred (mandatory):
 - Output MUST match ${baseLabel} in crop, zoom, margins, subject scale, and visible body parts.
 - Forbidden: outpainting, zooming out, completing partial views, or adding props/accessories not in ${baseLabel}.
-- Only garment cloth hue may change.`
+- Only allowed recolorable garment regions may change; protected white/neutral pattern areas and non-garment pixels stay unchanged.`
 }
 
 const PROMPT_COLOR_CHANGE_SUFFIX_ZH =
-  '【必做】仅将衣服布料主色改为目标色；必须完整保留原有格纹/印花结构、白色格子、布料肌理、褶皱阴影、缝线拼接与所有表面细节；禁止变成纯色块、禁止抹平褶皱、禁止改变版型与构图。真实照片效果。'
+  '【必做】仅将衣服布料中原本有颜色的主色/花纹区域改为目标色；白色、米白、浅灰、浅色底布、白色格子、白色花纹留白和高光区域必须保持中性白/原色，禁止被目标色染色或出现整体偏色。必须完整保留原有格纹/印花结构、布料肌理、褶皱阴影、缝线拼接与所有表面细节；禁止变成纯色块、禁止抹平褶皱、禁止改变版型与构图。真实照片效果。'
 
 /** 一键换色模式 — 完整提示词（单图，无布料参考） */
 export function buildColorChangePrompt(forEdits: boolean, targetColor: string): string {
@@ -377,6 +381,8 @@ export const STORAGE_KEY_SEPARATES_MODE = 'clothing_tool_separates_mode'
 export const STORAGE_KEY_SEPARATES_DUAL_MODE = 'clothing_tool_separates_dual_mode'
 /** 一键换色模式：用户指定颜色替换衣服颜色 */
 export const STORAGE_KEY_COLOR_CHANGE = 'clothing_tool_color_change'
+/** 换色模式：生成后恢复白底/浅色留白，避免被目标色污染 */
+export const STORAGE_KEY_COLOR_CHANGE_PROTECT_NEUTRALS = 'clothing_tool_color_change_protect_neutrals'
 /** 上身展示模式：商品平铺图穿到参考图模特身上 */
 export const STORAGE_KEY_WEAR_MODE = 'clothing_tool_wear_mode'
 /** 色卡模式：一张正面图 + 一张编号色卡批量生成正/背面 */

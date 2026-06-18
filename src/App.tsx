@@ -32,6 +32,7 @@ import {
   STORAGE_KEY_ASPECT,
   STORAGE_KEY_BASE,
   STORAGE_KEY_COLOR_CHANGE,
+  STORAGE_KEY_COLOR_CHANGE_PROTECT_NEUTRALS,
   STORAGE_KEY_COLOR_CARD_COUNT,
   STORAGE_KEY_COLOR_CARD_MODE,
   STORAGE_KEY_FOLLOW_TARGET_ASPECT,
@@ -46,6 +47,7 @@ import {
   STORAGE_KEY_SEPARATES_MODE,
   STORAGE_KEY_WEAR_MODE,
 } from './lib/constants'
+import { restoreProtectedLightNeutrals } from './lib/colorProtection'
 import { getImageFilesFromDataTransfer, readFileAsDataURL } from './lib/files'
 import { closestAspectLabel, getImageDimensions, sizeForAspect } from './lib/imageAspect'
 import {
@@ -65,7 +67,7 @@ type FabricVariant = 'standard' | 'skirtOnly' | 'separates' | 'separatesDual'
 
 const WORK_MODE_OPTIONS: { id: WorkMode; label: string; hint: string }[] = [
   { id: 'fabric', label: '换布', hint: '布料图替换花纹' },
-  { id: 'colorChange', label: '换色', hint: '选色替换，无需布料图' },
+  { id: 'colorChange', label: '换色', hint: '保留白底花纹' },
   { id: 'wear', label: '上身', hint: '保商品版型花色' },
   { id: 'colorCard', label: '色卡', hint: '编号色卡批量正背面' },
 ]
@@ -199,6 +201,10 @@ export default function App() {
   const separatesDualMode = inFabricMode && fabricVariant === 'separatesDual'
   /** 换色模式选中的颜色 (hex) */
   const [selectedColor, setSelectedColor] = useState<string>('#FF6B6B')
+  const [protectNeutralAreas, setProtectNeutralAreas] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY_COLOR_CHANGE_PROTECT_NEUTRALS)
+    return stored === null ? true : stored === '1'
+  })
   /** 上身展示模式的参考图 */
   const [wearModeRefSource, setWearModeRefSource] = useState<FabricSource | null>(null)
 
@@ -278,6 +284,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_COLOR_CARD_COUNT, String(colorCardCount))
   }, [colorCardCount])
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_COLOR_CHANGE_PROTECT_NEUTRALS, protectNeutralAreas ? '1' : '0')
+  }, [protectNeutralAreas])
 
   const selectWorkMode = useCallback((mode: WorkMode) => {
     setWorkMode(mode)
@@ -758,6 +767,10 @@ export default function App() {
           imageDataUrl = result.imageDataUrl
         }
 
+        if (colorChangeMode && protectNeutralAreas) {
+          imageDataUrl = await restoreProtectedLightNeutrals(job.file, imageDataUrl)
+        }
+
         updateJob(job.id, {
           status: 'done',
           resultDataUrl: imageDataUrl,
@@ -804,6 +817,7 @@ export default function App() {
     jobs,
     model,
     promptExtra,
+    protectNeutralAreas,
     separatesDualMode,
     separatesMode,
     selectedColor,
@@ -1147,6 +1161,15 @@ export default function App() {
                 <span className="color-hex-display">{selectedColor}</span>
               </label>
             </div>
+            <label className="job-back-toggle fabric-solid-toggle">
+              <input
+                type="checkbox"
+                checked={protectNeutralAreas}
+                disabled={isRunning}
+                onChange={(e) => setProtectNeutralAreas(e.target.checked)}
+              />
+              保护白底/浅色留白（防止被目标色染色）
+            </label>
           </div>
         )}
 

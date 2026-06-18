@@ -313,25 +313,32 @@ ${colorCardViewPrompt(view, 'Image 2', hasBackReference)}
 }
 
 /** 上身展示模式 — 生成接口（图1=商品，图2=模特参考） */
-export const PROMPT_WEAR_MODE = `WEAR MODE — transfer garment from product photo onto model reference (mandatory):
-- Image 1: flat lay or hung product photo — garment(s) to wear; sole authority for design, pattern, color, cut, and details.
-- Image 2: model reference photo — desired pose, styling, accessories, scene, and composition (base presentation).
-- Put the garment(s) from Image 1 onto the model in Image 2.
-- CRITICAL — Preserve Image 1's garment 100% exactly: design, pattern, color, cut, neckline shape, collar style, sleeve length and style, hem shape, all details (embroidery, prints, buttons, trims, pockets, seams), piece count, and overall silhouette. Every motif and detail must match Image 1 pixel-perfectly — do NOT redraw, reinterpret, or redesign any part of the garment.
-- Preserve Image 2's presentation: model pose, body type, face, hair, accessories, background, lighting, and composition.
-- The output should look like Image 1's actual garment (not a redesigned version) is being worn by Image 2's model in Image 2's scene.
-- Forbidden: changing Image 1's garment design in any way — no altering neckline, no changing sleeve style, no moving or redrawing prints/embroidery, no "improving" or "stylizing" the garment. The garment from Image 1 must be copied exactly as-is.
-- If Image 1 shows a top + bottom outfit, both must be transferred to Image 2.`
+export const PROMPT_WEAR_MODE = `WEAR MODE — put the exact product garment onto the model reference (mandatory):
+- Image 1: product garment photo — the ONLY authority for the garment itself.
+- Image 2: model reference photo — use ONLY the model pose, body orientation, scene, background, lighting mood, accessories, styling context, camera angle, and composition.
+- Put the exact garment(s) from Image 1 onto the model in Image 2.
+- PRODUCT GARMENT LOCK: Preserve Image 1 garment 100% exactly: garment category, piece count, silhouette, fit, volume, looseness, neckline, collar, placket, sleeve length and style, shoulder shape, waistline, hem, length, skirt/pants shape, seams, pockets, buttons, trims, embroidery, prints, motifs, pattern scale, color palette, fabric texture, material, and all construction details.
+- Ignore Image 2's original clothing completely. Do NOT borrow Image 2 clothing's cut, color, pattern, neckline, sleeve type, length, fit, waist, hem, or styling details.
+- The output should look like Image 1's actual product garment, unchanged, is being worn by Image 2's model in Image 2's scene.
+- Forbidden: changing Image 1's garment design in any way; recoloring it; changing prints or flower patterns; changing neckline; changing sleeve style; slimming or loosening the fit; moving or redrawing motifs; simplifying details; "improving", beautifying, stylizing, or adapting the garment to match Image 2's outfit.
+- Preserve Image 2's presentation only: pose, body type, face, hair, accessories, background, lighting, camera angle, crop, and composition.
+- If Image 1 shows a top + bottom outfit, both pieces must be transferred exactly and remain separate unless Image 1 itself is one-piece.
+
+中文要求：图片1的商品衣服是唯一服装标准，必须严格保留它的版型、颜色、花色、图案、材质、领型、袖型、衣长、裤型/裙型、松量和所有细节。图片2只参考模特姿势、场景、配饰、背景、光线和构图；严禁参考图片2里原衣服的版型、颜色、花纹或风格。`
 
 /** 上身展示模式 — 编辑接口（图1=模特参考底图，图2=商品） */
-export const PROMPT_WEAR_MODE_EDIT = `WEAR MODE — transfer garment onto model reference (mandatory):
-- FIRST image — model reference (base canvas). Preserve pose, body, face, hair, accessories, background, lighting, and composition exactly.
-- SECOND image — flat lay or hung product photo — garment(s) to wear; sole authority for design, pattern, color, cut, and details.
-- Put the garment from the SECOND image onto the model in the FIRST image.
-- CRITICAL — Preserve the SECOND image's garment 100% exactly: design, pattern, color, cut, neckline shape, collar style, sleeve length and style, hem shape, all details (embroidery, prints, buttons, trims, pockets, seams), piece count, and overall silhouette. Every motif and detail must match the SECOND image pixel-perfectly — do NOT redraw, reinterpret, or redesign any part of the garment.
-- Preserve the FIRST image's scene and model presentation.
-- Forbidden: changing the garment design from the SECOND image in any way — no altering neckline, no changing sleeve style, no moving or redrawing prints/embroidery, no "improving" or "stylizing" the garment. The garment from the SECOND image must be copied exactly as-is.
-- If the SECOND image shows a top + bottom outfit, both must be transferred.`
+export const PROMPT_WEAR_MODE_EDIT = `WEAR MODE — put the exact product garment onto the model reference (mandatory):
+- FIRST image — model reference base canvas. Use ONLY its model pose, body orientation, scene, background, lighting mood, accessories, styling context, camera angle, crop, and composition.
+- SECOND image — product garment photo. It is the ONLY authority for the garment itself.
+- Put the exact garment(s) from the SECOND image onto the model in the FIRST image.
+- PRODUCT GARMENT LOCK: Preserve the SECOND image garment 100% exactly: garment category, piece count, silhouette, fit, volume, looseness, neckline, collar, placket, sleeve length and style, shoulder shape, waistline, hem, length, skirt/pants shape, seams, pockets, buttons, trims, embroidery, prints, motifs, pattern scale, color palette, fabric texture, material, and all construction details.
+- Ignore the FIRST image's original clothing completely. Do NOT borrow the FIRST image clothing's cut, color, pattern, neckline, sleeve type, length, fit, waist, hem, or styling details.
+- The output should look like the SECOND image's actual product garment, unchanged, is being worn by the FIRST image model in the FIRST image scene.
+- Forbidden: changing the SECOND image garment design in any way; recoloring it; changing prints or flower patterns; changing neckline; changing sleeve style; slimming or loosening the fit; moving or redrawing motifs; simplifying details; "improving", beautifying, stylizing, or adapting the garment to match the FIRST image outfit.
+- Preserve the FIRST image's presentation only: pose, body type, face, hair, accessories, background, lighting, camera angle, crop, and composition.
+- If the SECOND image shows a top + bottom outfit, both pieces must be transferred exactly and remain separate unless the SECOND image itself is one-piece.
+
+中文要求：图片2的商品衣服是唯一服装标准，必须严格保留它的版型、颜色、花色、图案、材质、领型、袖型、衣长、裤型/裙型、松量和所有细节。图片1只参考模特姿势、场景、配饰、背景、光线和构图；严禁参考图片1里原衣服的版型、颜色、花纹或风格。`
 
 /** 默认追加说明（简短中文，强化「必须换布」） */
 export const DEFAULT_PROMPT_SUFFIX =

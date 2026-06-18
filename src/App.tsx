@@ -66,7 +66,7 @@ type FabricVariant = 'standard' | 'skirtOnly' | 'separates' | 'separatesDual'
 const WORK_MODE_OPTIONS: { id: WorkMode; label: string; hint: string }[] = [
   { id: 'fabric', label: '换布', hint: '布料图替换花纹' },
   { id: 'colorChange', label: '换色', hint: '选色替换，无需布料图' },
-  { id: 'wear', label: '上身', hint: '商品穿到模特参考图' },
+  { id: 'wear', label: '上身', hint: '保商品版型花色' },
   { id: 'colorCard', label: '色卡', hint: '编号色卡批量正背面' },
 ]
 
@@ -1389,7 +1389,7 @@ export default function App() {
               <h2>上传「模特参考图」</h2>
             </div>
             <p className="step-desc">
-              上传一张<strong>模特展示参考图</strong>（姿势、场景、配饰等展示效果），所有商品将穿到这位模特身上。
+              只参考模特的姿势、场景、配饰、背景和构图；不参考模特图里原衣服的版型、颜色或花色。
             </p>
 
             <div className="upload-card">
@@ -1455,7 +1455,7 @@ export default function App() {
                 </>
               ) : wearMode ? (
                 <>
-                  请传<strong>平铺/挂拍商品图</strong>（要上身展示的衣服），可多张批量；每张会分别穿到模特参考图上。
+                  请传<strong>平铺/挂拍商品图</strong>（要严格保留的衣服），会保留商品的版型、颜色、花色、图案和细节。
                 </>
               ) : (
                 <>

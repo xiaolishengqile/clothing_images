@@ -222,7 +222,7 @@
 
 .toolbar-token {
   display: flex;
-  flex: 1 1 320px;
+  flex: 0 1 calc(50% - 1rem);
   align-items: center;
   gap: 0.5rem 0.75rem;
   min-width: min(100%, 260px);
@@ -256,6 +256,21 @@
   white-space: nowrap;
 }
 
+.toolbar-aspect {
+  flex: 0 0 13rem;
+  margin-bottom: 0;
+}
+
+.toolbar-size {
+  flex: 0 0 13rem;
+  margin-bottom: 0;
+}
+
+.toolbar-aspect label,
+.toolbar-size label {
+  margin-bottom: 0.25rem;
+}
+
 .toolbar-advanced {
   flex: 0 0 auto;
   margin: 0;
@@ -282,6 +297,14 @@
 @media (max-width: 640px) {
   .toolbar-token {
     flex-wrap: wrap;
+  }
+
+  .toolbar-aspect {
+    flex: 1 1 calc(50% - 0.5rem);
+  }
+
+  .toolbar-size {
+    flex: 1 1 calc(50% - 0.5rem);
   }
 
   .toolbar-hint {

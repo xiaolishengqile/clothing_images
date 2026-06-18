@@ -21,7 +21,7 @@ const PROMPT_FABRIC_RULES = `Fabric from image 1 (including solid / low-print cl
 - Printed fabric: copy exact motif layout, repeat, and color palette onto image 2 cloth.
 - Solid, tonal, heather, or texture-only fabric: copy exact hue, brightness, and surface texture; image 2 cloth becomes that solid/tonal look — still a full replacement, not a subtle tint.
 - If image 1 is a full-outfit flat lay: sample textile from the main top/shirt cloth only; do NOT import image 1's pants, layout, or garment shape.
-- Map image 1 textile onto image 2 like a fixed swatch: warp for folds and perspective only.
+- Map image 1 textile onto image 2 like a fixed swatch: warp for necessary garment drape and perspective only.
 - Forbidden: keeping or blending image 2's old print; "no pattern in image 1" is NOT a reason to keep image 2's pattern.`
 
 const PROMPT_PRESERVE = `Preserve from image 2 (everything except garment cloth):
@@ -156,8 +156,8 @@ export const PROMPT_SEPARATES_DUAL_MODE_EDIT = `SEPARATES DUAL-REFERENCE FABRIC 
 中文要求：图片2和图片3只作为“布面外观参考”，只取颜色、花色、图案、纹理、材质感；严禁参考它们的版型。最终衣服的领型、袖型、衣长、腰线、裙型/裤型、松量、轮廓全部以图片1为准。图片2是V领也不能把目标上衣改成V领；图片3是裤子也不能把目标裙子改成裤子。只在目标图原有衣服表面换颜色和花纹。`
 
 const PROMPT_GARMENT_STRUCTURE_LOCK = `GARMENT STRUCTURE LOCK — image 2 is the only authority for cut (mandatory):
-- Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short puff sleeves stay short puff — NOT slim bell or elbow unless image 2 has them), hem, seams, layers, and piece count.
-- Forbidden: redesigning or beautifying the garment; changing sleeve style or length; changing neckline or hem; importing cut, neckline, or silhouette from image 1.
+- Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short puff sleeves stay short puff — NOT slim bell or elbow unless image 2 has them), hem, seams, layers, piece count, trims, binding, ruffles, overlock/serged edges, topstitching, pocket shape, labels, closures, and panel joins.
+- Forbidden: redesigning or beautifying the garment; changing sleeve style or length; changing neckline or hem; changing sewing construction or finishing method; importing cut, neckline, silhouette, or workmanship from image 1.
 - Image 1 supplies textile (color/print/texture) ONLY — never garment pattern-making or sleeve shape from image 1.`
 
 /** 版型锁：松量、轮廓、腰线 — 只换布面纹理，不改穿着效果 */
@@ -195,9 +195,9 @@ const PROMPT_COLOR_PATTERN_LOCK = `PATTERN & SURFACE DETAIL LOCK — preserve AL
 - Preserve contrast squares/lines and their proportions; recolor only the non-white / non-neutral dominant color areas to the target hue.
 - Treat white floral backgrounds, white pant bases, white plaid squares, white stripes, white negative space, pale highlights, and neutral thread as a protected mask.
 - Preserve weave, crinkle, seersucker ridges, gauze grain, knit texture, and all micro-surface detail — do NOT flatten into a solid color field.
-- Preserve every fold, wrinkle, crease, drape shadow, and highlight exactly — shadow lines and depth cues must match the original photo.
+- Preserve natural garment drape, depth, and panel volume, but remove accidental photo wrinkles, press creases, crush marks, and random fabric dents that are not part of the garment design.
 - Preserve construction details: seam lines, topstitching, panel joins, placket edges, collar/cuff ruffle layers, buttonholes, buttons, and color-block boundaries — recolor each cloth panel but keep seam geometry and stitching visible.
-- Forbidden: removing prints or patterns; inventing new patterns; changing check/plaid scale; smoothing wrinkles; erasing seam lines or panel joins; tinting protected white/neutral background areas.
+- Forbidden: removing prints or patterns; inventing new patterns; changing check/plaid scale; erasing seam lines or panel joins; tinting protected white/neutral background areas.
 - If the original cloth is solid (no print), keep it solid in the target color while preserving weave texture and fold shadows.`
 
 function buildColorChangeStructureLock(baseLabel: string): string {
@@ -220,7 +220,14 @@ function buildColorChangeFramingLock(baseLabel: string): string {
 }
 
 const PROMPT_COLOR_CHANGE_SUFFIX_ZH =
-  '【必做】仅将衣服布料中原本有颜色的主色/花纹区域改为目标色；白色、米白、浅灰、浅色底布、白色格子、白色花纹留白和高光区域必须保持中性白/原色，禁止被目标色染色或出现整体偏色。必须完整保留原有格纹/印花结构、布料肌理、褶皱阴影、缝线拼接与所有表面细节；禁止变成纯色块、禁止抹平褶皱、禁止改变版型与构图。真实照片效果。'
+  '【必做】仅将衣服布料中原本有颜色的主色/花纹区域改为目标色；白色、米白、浅灰、浅色底布、白色格子、白色花纹留白和高光区域必须保持中性白/原色，禁止被目标色染色或出现整体偏色。必须完整保留原有格纹/印花结构、布料肌理、缝线拼接与所有表面细节；去除非设计本身的临时褶皱、压痕、拍摄折痕和随机皱痕；禁止变成纯色块、禁止改变版型与构图。真实照片效果。'
+
+export const PROMPT_GLOBAL_CLEAN_CRAFT_LOCK = `GLOBAL GARMENT CLEANUP & WORKMANSHIP LOCK — applies to every mode (mandatory):
+- Remove accidental photo wrinkles, crush marks, press creases, random folds, storage dents, and old-cloth wrinkle artifacts from the generated garment surface. Keep only natural garment drape needed for realistic fit and lighting.
+- Preserve the garment's sewing workmanship exactly from the mode's garment-authority image: seams, overlock/serged edges, binding, piping, ruffles, pleats, gathers, topstitching, buttonholes, buttons, pockets, labels, panel joins, hem finish, placket finish, and trim placement.
+- Forbidden: changing the workmanship method, simplifying craft details, redrawing trims, moving seams, changing pocket/label shape, or turning an inside/back construction into a front-facing design unless the selected view mode explicitly asks for it.
+
+中文要求：所有模式都必须去掉非设计本身的拍摄褶皱、压痕、折痕和随机皱痕；只保留自然垂坠和光影。工艺必须严格保留：锁边/拷边、包边、荷叶边、褶裥、抽褶、明线、纽扣、口袋、标牌、拼接线、下摆和门襟做法都不能改。`
 
 /** 一键换色模式 — 完整提示词（单图，无布料参考） */
 export function buildColorChangePrompt(forEdits: boolean, targetColor: string): string {
@@ -346,7 +353,7 @@ export const PROMPT_WEAR_MODE_EDIT = `WEAR MODE — put the exact product garmen
 
 /** 默认追加说明（简短中文，强化「必须换布」） */
 export const DEFAULT_PROMPT_SUFFIX =
-  '【必做】第1张图的布面颜色/花纹/肌理必须完整替换第2张图所有衣服布面；保留目标图原印花是错误的。第1张若无印花则按纯色/肌理替换。版型、松量、腰线、轮廓必须与目标图完全一致，禁止收腰修身、禁止改变宽松度，只换布面。袖型、领型、裁剪亦须与目标图一致。除衣服布面外，目标图其余内容保持不变。'
+  '【必做】第1张图的布面颜色/花纹/肌理必须完整替换第2张图所有衣服布面；保留目标图原印花是错误的。第1张若无印花则按纯色/肌理替换。版型、松量、腰线、轮廓必须与目标图完全一致，禁止收腰修身、禁止改变宽松度，只换布面。袖型、领型、裁剪和工艺做法亦须与目标图一致。去除非设计本身的临时褶皱、压痕和拍摄折痕。除衣服布面外，目标图其余内容保持不变。'
 
 /** 布料换花主提示词；可与用户附加说明拼接 */
 export function buildFabricTransferPrompt(multiTarget = false): string {
@@ -379,6 +386,8 @@ export const STORAGE_KEY_SKIRT_ONLY = 'clothing_tool_skirt_only'
 export const STORAGE_KEY_SEPARATES_MODE = 'clothing_tool_separates_mode'
 /** 上下装双参考模式：上衣参考、下装参考分别上传 */
 export const STORAGE_KEY_SEPARATES_DUAL_MODE = 'clothing_tool_separates_dual_mode'
+/** 标准换布：正面 / 背面视角 */
+export const STORAGE_KEY_STANDARD_VIEW = 'clothing_tool_standard_view'
 /** 一键换色模式：用户指定颜色替换衣服颜色 */
 export const STORAGE_KEY_COLOR_CHANGE = 'clothing_tool_color_change'
 /** 换色模式：生成后恢复白底/浅色留白，避免被目标色污染 */
@@ -412,4 +421,4 @@ export const SIZE_OPTIONS_2K = [
   '2048x3584',
 ]
 
-export const ASPECT_OPTIONS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9']
+export const ASPECT_OPTIONS = ['1:1', '1:2', '2:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9']

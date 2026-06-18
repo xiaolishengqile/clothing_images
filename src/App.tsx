@@ -17,6 +17,7 @@ import {
   DEFAULT_SIZE_2K,
   MAX_BATCH_CONCURRENCY,
   buildColorChangePrompt,
+  PROMPT_GLOBAL_CLEAN_CRAFT_LOCK,
   PROMPT_SEPARATES_MODE,
   PROMPT_SEPARATES_MODE_EDIT,
   PROMPT_SEPARATES_DUAL_MODE,
@@ -39,6 +40,7 @@ import {
   STORAGE_KEY_PROMPT,
   STORAGE_KEY_SIZE,
   STORAGE_KEY_SOLID_FABRIC,
+  STORAGE_KEY_STANDARD_VIEW,
   STORAGE_KEY_TOKEN,
   STORAGE_KEY_USE_2K,
   STORAGE_KEY_USE_EDITS,
@@ -50,6 +52,7 @@ import {
 import { restoreProtectedLightNeutrals } from './lib/colorProtection'
 import { getImageFilesFromDataTransfer, readFileAsDataURL } from './lib/files'
 import { closestAspectLabel, getImageDimensions, sizeForAspect } from './lib/imageAspect'
+import { ensureOutputAspect } from './lib/outputAspect'
 import {
   buildPerJobPromptSuffix,
   checkTargetImage,
@@ -62,8 +65,8 @@ type PasteTarget = 'fabric' | 'fabricTop' | 'fabricBottom' | 'target' | 'colorCa
 /** 主工作模式：换布（默认）、一键换色、上身展示、色卡 */
 type WorkMode = 'fabric' | 'colorChange' | 'wear' | 'colorCard'
 type ColorCardView = 'front' | 'back'
-/** 换布变体：标准 / 裙子 / 上下装分离 / 上下装双参考 */
-type FabricVariant = 'standard' | 'skirtOnly' | 'separates' | 'separatesDual'
+/** 换布变体：标准正面 / 标准背面 / 裙子 / 上下装分离 / 上下装双参考 */
+type FabricVariant = 'standardFront' | 'standardBack' | 'skirtOnly' | 'separates' | 'separatesDual'
 
 const WORK_MODE_OPTIONS: { id: WorkMode; label: string; hint: string }[] = [
   { id: 'fabric', label: '换布', hint: '布料图替换花纹' },
@@ -77,7 +80,8 @@ const MIN_COLOR_CARD_COUNT = 0
 const MAX_COLOR_CARD_COUNT = 99
 
 const FABRIC_VARIANT_OPTIONS: { id: FabricVariant; label: string; hint: string }[] = [
-  { id: 'standard', label: '标准', hint: '整件替换（默认）' },
+  { id: 'standardFront', label: '标准正面', hint: '正面图锁定' },
+  { id: 'standardBack', label: '标准背面', hint: '背面图锁定' },
   { id: 'skirtOnly', label: '裙子模式', hint: '只换下装，上衣不变' },
   { id: 'separates', label: '上下装分离', hint: '上衣、下装分别替换' },
   { id: 'separatesDual', label: '双参考', hint: '只取花色，不取版型' },
@@ -91,11 +95,16 @@ function loadWorkMode(): WorkMode {
 }
 
 function loadFabricVariant(workMode: WorkMode): FabricVariant {
-  if (workMode !== 'fabric') return 'standard'
+  if (workMode !== 'fabric') return 'standardFront'
   if (localStorage.getItem(STORAGE_KEY_SEPARATES_DUAL_MODE) === '1') return 'separatesDual'
   if (localStorage.getItem(STORAGE_KEY_SKIRT_ONLY) === '1') return 'skirtOnly'
   if (localStorage.getItem(STORAGE_KEY_SEPARATES_MODE) === '1') return 'separates'
-  return 'standard'
+  return localStorage.getItem(STORAGE_KEY_STANDARD_VIEW) === 'back' ? 'standardBack' : 'standardFront'
+}
+
+function loadAspectRatio(): string {
+  const stored = localStorage.getItem(STORAGE_KEY_ASPECT)
+  return stored && ASPECT_OPTIONS.includes(stored) ? stored : DEFAULT_ASPECT_RATIO
 }
 
 function clampColorCardCount(value: number): number {
@@ -174,20 +183,13 @@ export default function App() {
   const [model, setModel] = useState(DEFAULT_MODEL)
   const [promptExtra, setPromptExtra] = useState(() => localStorage.getItem(STORAGE_KEY_PROMPT) ?? '')
   const [size, setSize] = useState(() => localStorage.getItem(STORAGE_KEY_SIZE) ?? DEFAULT_SIZE)
-  const [aspectRatio, setAspectRatio] = useState(
-    () => localStorage.getItem(STORAGE_KEY_ASPECT) ?? DEFAULT_ASPECT_RATIO,
-  )
-  const [followTargetAspect, setFollowTargetAspect] = useState(
-    () => localStorage.getItem(STORAGE_KEY_FOLLOW_TARGET_ASPECT) !== '0',
-  )
+  const [aspectRatio, setAspectRatio] = useState(() => loadAspectRatio())
+  const [followTargetAspect] = useState(false)
   const [isSolidFabric, setIsSolidFabric] = useState(
     () => localStorage.getItem(STORAGE_KEY_SOLID_FABRIC) === '1',
   )
   const [use2kOutput, setUse2kOutput] = useState(() => localStorage.getItem(STORAGE_KEY_USE_2K) === '1')
-  const [useEditsApi, setUseEditsApi] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEY_USE_EDITS)
-    return stored === null ? true : stored === '1'
-  })
+  const [useEditsApi] = useState(true)
   const [workMode, setWorkMode] = useState<WorkMode>(() => loadWorkMode())
   const [fabricVariant, setFabricVariant] = useState<FabricVariant>(() => loadFabricVariant(loadWorkMode()))
   const [colorCardCount, setColorCardCount] = useState(() => loadColorCardCount())
@@ -196,6 +198,8 @@ export default function App() {
   const wearMode = workMode === 'wear'
   const colorCardMode = workMode === 'colorCard'
   const inFabricMode = workMode === 'fabric'
+  const standardFrontMode = inFabricMode && fabricVariant === 'standardFront'
+  const standardBackMode = inFabricMode && fabricVariant === 'standardBack'
   const skirtOnlyMode = inFabricMode && fabricVariant === 'skirtOnly'
   const separatesMode = inFabricMode && fabricVariant === 'separates'
   const separatesDualMode = inFabricMode && fabricVariant === 'separatesDual'
@@ -222,10 +226,11 @@ export default function App() {
   const [pasteTarget, setPasteTarget] = useState<PasteTarget>('fabric')
 
   const cancelRef = useRef(false)
+  const runIdRef = useRef(0)
   const pasteTargetRef = useRef<PasteTarget>('fabric')
   const colorCardSourceFileRef = useRef<File | null>(null)
   const colorCardBackFileRef = useRef<File | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  const abortControllersRef = useRef<Set<AbortController>>(new Set())
   const advancedDetailsRef = useRef<HTMLDetailsElement>(null)
 
   // 预设色板
@@ -275,6 +280,7 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_SKIRT_ONLY, fabricVariant === 'skirtOnly' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_SEPARATES_MODE, fabricVariant === 'separates' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_SEPARATES_DUAL_MODE, fabricVariant === 'separatesDual' ? '1' : '0')
+    localStorage.setItem(STORAGE_KEY_STANDARD_VIEW, fabricVariant === 'standardBack' ? 'back' : 'front')
   }, [fabricVariant])
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_COLOR_CHANGE, workMode === 'colorChange' ? '1' : '0')
@@ -578,7 +584,13 @@ export default function App() {
 
   const stopRun = useCallback(() => {
     cancelRef.current = true
-    abortRef.current?.abort()
+    runIdRef.current += 1
+    for (const ac of abortControllersRef.current) {
+      ac.abort()
+    }
+    abortControllersRef.current.clear()
+    setJobs((prev) => prev.map((job) => (job.status === 'running' ? { ...job, status: 'queued' } : job)))
+    setIsRunning(false)
   }, [])
 
   const encodeImage = useCallback(async (file: File) => readFileAsDataURL(file), [])
@@ -618,6 +630,8 @@ export default function App() {
     }
 
     cancelRef.current = false
+    const runId = runIdRef.current + 1
+    runIdRef.current = runId
     setIsRunning(true)
 
     const buildPrompt = useEditsApi ? buildFabricTransferPromptForEdits : buildFabricTransferPrompt
@@ -679,7 +693,7 @@ export default function App() {
     }
 
     const runOne = async (job: Job) => {
-      if (cancelRef.current) return
+      if (cancelRef.current || runIdRef.current !== runId) return
       updateJob(job.id, {
         status: 'running',
         error: undefined,
@@ -687,10 +701,10 @@ export default function App() {
         completedAt: undefined,
       })
       const ac = new AbortController()
-      abortRef.current = ac
+      abortControllersRef.current.add(ac)
       try {
         let jobAspect = aspectRatio
-        let jobSize = size
+        let jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
         if (followTargetAspect) {
           const { width, height } = await getImageDimensions(job.file)
           jobAspect = closestAspectLabel(width, height)
@@ -699,7 +713,8 @@ export default function App() {
 
         const jobPromptSuffix = buildPerJobPromptSuffix({
           warnings: job.warnings ?? [],
-          isBackView: colorCardMode ? false : job.isBackView === true,
+          isFrontView: standardFrontMode,
+          isBackView: colorCardMode ? false : standardBackMode || (!standardFrontMode && job.isBackView === true),
           isStrictFraming: job.isStrictFraming === true,
           forEdits: useEditsApi,
         })
@@ -719,6 +734,7 @@ export default function App() {
             : ''
         const prompt = [
           colorCardPrompt || fullPrompt,
+          PROMPT_GLOBAL_CLEAN_CRAFT_LOCK,
           jobPromptSuffix,
           colorCardMode ? promptExtra.trim() : '',
         ]
@@ -770,6 +786,8 @@ export default function App() {
         if (colorChangeMode && protectNeutralAreas) {
           imageDataUrl = await restoreProtectedLightNeutrals(job.file, imageDataUrl)
         }
+        imageDataUrl = await ensureOutputAspect(imageDataUrl, jobAspect)
+        if (cancelRef.current || runIdRef.current !== runId) return
 
         updateJob(job.id, {
           status: 'done',
@@ -777,12 +795,13 @@ export default function App() {
           completedAt: Date.now(),
         })
       } catch (e) {
-        if (cancelRef.current || (e instanceof DOMException && e.name === 'AbortError')) {
-          updateJob(job.id, { status: 'queued' })
+        if (cancelRef.current || runIdRef.current !== runId || (e instanceof DOMException && e.name === 'AbortError')) {
           return
         }
         const msg = e instanceof Error ? e.message : String(e)
         updateJob(job.id, { status: 'error', error: msg })
+      } finally {
+        abortControllersRef.current.delete(ac)
       }
     }
 
@@ -791,7 +810,7 @@ export default function App() {
 
     const worker = async () => {
       for (;;) {
-        if (cancelRef.current) return
+        if (cancelRef.current || runIdRef.current !== runId) return
         const my = cursor++
         if (my >= queue.length) return
         await runOne(queue[my])
@@ -800,8 +819,9 @@ export default function App() {
 
     await Promise.all(Array.from({ length: n }, () => worker()))
 
-    abortRef.current = null
-    setIsRunning(false)
+    if (runIdRef.current === runId) {
+      setIsRunning(false)
+    }
   }, [
     apiBase,
     apiToken,
@@ -823,6 +843,8 @@ export default function App() {
     selectedColor,
     size,
     skirtOnlyMode,
+    standardBackMode,
+    standardFrontMode,
     updateJob,
     use2kOutput,
     useEditsApi,
@@ -946,6 +968,40 @@ export default function App() {
           <span className="toolbar-hint">只保存在本机浏览器</span>
         </div>
 
+        <div className="toolbar-aspect field">
+          <label htmlFor="aspect">画幅比例</label>
+          <select
+            id="aspect"
+            value={aspectRatio}
+            onChange={(e) => {
+              const nextAspect = e.target.value
+              setAspectRatio(nextAspect)
+              setSize(sizeForAspect(nextAspect, use2kOutput ? DEFAULT_SIZE_2K : DEFAULT_SIZE, use2kOutput))
+            }}
+          >
+            {ASPECT_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="toolbar-size field">
+          <label htmlFor="size">分辨率{use2kOutput ? ' · 2K' : ''}</label>
+          <select
+            id="size"
+            value={size}
+            onChange={(e) => setSize(e.target.value)}
+          >
+            {activeSizeOptions.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <details ref={advancedDetailsRef} className="settings-advanced toolbar-advanced">
           <summary>高级选项</summary>
           <div className="settings-advanced-body toolbar-advanced-body">
@@ -971,39 +1027,6 @@ export default function App() {
                   placeholder="gpt-image-2"
                 />
               </div>
-              <div className="field">
-                <label htmlFor="size">
-                  输出尺寸{followTargetAspect ? '（自动）' : ''}
-                  {use2kOutput ? ' · 2K' : ''}
-                </label>
-                <select
-                  id="size"
-                  value={size}
-                  disabled={followTargetAspect}
-                  onChange={(e) => setSize(e.target.value)}
-                >
-                  {activeSizeOptions.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="aspect">画面比例{followTargetAspect ? '（自动）' : ''}</label>
-                <select
-                  id="aspect"
-                  value={aspectRatio}
-                  disabled={followTargetAspect}
-                  onChange={(e) => setAspectRatio(e.target.value)}
-                >
-                  {ASPECT_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
               <div className="field field-span2 field-checkbox">
                 <label>
                   <input
@@ -1011,33 +1034,11 @@ export default function App() {
                     checked={use2kOutput}
                     onChange={(e) => {
                       const checked = e.target.checked
-                      const opts = checked ? SIZE_OPTIONS_2K : SIZE_OPTIONS
-                      const defaultSize = checked ? DEFAULT_SIZE_2K : DEFAULT_SIZE
                       setUse2kOutput(checked)
-                      setSize((prev) => (opts.includes(prev) ? prev : defaultSize))
+                      setSize(sizeForAspect(aspectRatio, checked ? DEFAULT_SIZE_2K : DEFAULT_SIZE, checked))
                     }}
                   />
                   2K 高清输出（更慢、费用更高；若网关不支持会报错）
-                </label>
-              </div>
-              <div className="field field-span2 field-checkbox">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={useEditsApi}
-                    onChange={(e) => setUseEditsApi(e.target.checked)}
-                  />
-                  编辑接口（保构图，推荐）— 使用 /v1/images/edits；若网关不支持可关闭改用生成接口
-                </label>
-              </div>
-              <div className="field field-span2 field-checkbox">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={followTargetAspect}
-                    onChange={(e) => setFollowTargetAspect(e.target.checked)}
-                  />
-                  跟随每张模特图比例（推荐，多为 3:4）
                 </label>
               </div>
               <div className="field field-span2">
@@ -1051,11 +1052,7 @@ export default function App() {
                 />
               </div>
             </div>
-            {followTargetAspect ? (
-              <p className="field-hint">生成时按每张原图宽高自动选最接近比例（如 3:4、9:16）。本地跨域可填 http://localhost:5173/t8proxy</p>
-            ) : (
-              <p className="field-hint">本地若报跨域，接口地址可填 http://localhost:5173/t8proxy</p>
-            )}
+            <p className="field-hint">本地若报跨域，接口地址可填 http://localhost:5173/t8proxy</p>
             <div className="settings-advanced-footer">
               <button
                 type="button"
@@ -1482,7 +1479,7 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  请传<strong>完整商品图</strong>（平铺/模特/挂拍），勿传布样特写。可多张上传；若是<strong>背面图</strong>请在卡片上勾选；局部图等风险会自动提示。
+                  请传<strong>完整商品图</strong>（平铺/模特/挂拍），勿传布样特写。可多张上传；标准模式请先选正面或背面；其他变体若是<strong>背面图</strong>请在卡片上勾选；局部图等风险会自动提示。
                 </>
               )}
             </p>
@@ -1675,7 +1672,7 @@ export default function App() {
                       </span>
                       <span className={`status status-${job.status}`}>{STATUS_LABEL[job.status]}</span>
                     </div>
-                    {!colorCardMode ? (
+                    {!colorCardMode && !standardFrontMode && !standardBackMode ? (
                       <label className="job-back-toggle">
                         <input
                           type="checkbox"

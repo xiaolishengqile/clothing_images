@@ -43,6 +43,8 @@ export function closestAspectLabel(
 /** 与画面比例对应的 API size（1K） */
 export const ASPECT_TO_SIZE: Record<string, string> = {
   '1:1': '1024x1024',
+  '1:2': '1024x1792',
+  '2:1': '1792x1024',
   '2:3': '1024x1536',
   '3:2': '1536x1024',
   '3:4': '1024x1536',
@@ -56,6 +58,8 @@ export const ASPECT_TO_SIZE: Record<string, string> = {
 /** 与画面比例对应的 API size（2K） */
 export const ASPECT_TO_SIZE_2K: Record<string, string> = {
   '1:1': '2048x2048',
+  '1:2': '2048x3584',
+  '2:1': '3584x2048',
   '2:3': '2048x3072',
   '3:2': '3072x2048',
   '3:4': '2048x3072',

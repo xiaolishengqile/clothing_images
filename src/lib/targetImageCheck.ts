@@ -169,7 +169,16 @@ const PROMPT_BACK_VIEW_LOCK = `BACK VIEW: the target image is back-facing — ou
 Show only the back of the garment (back neck, back yoke, back sleeves). Forbidden: flip to front or mirror to reveal the front.
 Still replace back cloth with the fabric reference image.`
 
+const PROMPT_FRONT_VIEW_LOCK = `FRONT VIEW: the target image is front-facing — output stays front-facing with the same pose and framing.
+Show only the front of the garment (front neckline, front placket, front sleeves, front hem). Forbidden: flip to the back, show inside/back construction as the front, or mirror to reveal the back.
+Still replace front cloth with the fabric reference image.`
+
 const PROMPT_BACK_VIEW_LOCK_EDIT = PROMPT_BACK_VIEW_LOCK.replace(
+  'the target image',
+  'the FIRST image (base)',
+).replace('the fabric reference image', 'the SECOND image (fabric reference)')
+
+const PROMPT_FRONT_VIEW_LOCK_EDIT = PROMPT_FRONT_VIEW_LOCK.replace(
   'the target image',
   'the FIRST image (base)',
 ).replace('the fabric reference image', 'the SECOND image (fabric reference)')
@@ -185,6 +194,7 @@ const PROMPT_STRICT_FIT_EDIT = PROMPT_STRICT_FIT.replace(/the target/g, 'the FIR
 
 export interface BuildPerJobPromptOptions {
   warnings: TargetImageWarning[]
+  isFrontView?: boolean
   isBackView?: boolean
   isStrictFraming?: boolean
   /** 编辑接口：第一张=目标，第二张=布 */
@@ -199,9 +209,12 @@ export function buildPerJobPromptSuffix(
   const opts: BuildPerJobPromptOptions = Array.isArray(warningsOrOptions)
     ? { warnings: warningsOrOptions, isBackView: isBackViewLegacy }
     : warningsOrOptions
-  const { warnings, isBackView = false, isStrictFraming = false, forEdits = false } = opts
+  const { warnings, isFrontView = false, isBackView = false, isStrictFraming = false, forEdits = false } = opts
 
   const parts: string[] = []
+  if (isFrontView) {
+    parts.push(forEdits ? PROMPT_FRONT_VIEW_LOCK_EDIT : PROMPT_FRONT_VIEW_LOCK)
+  }
   if (isBackView) {
     parts.push(forEdits ? PROMPT_BACK_VIEW_LOCK_EDIT : PROMPT_BACK_VIEW_LOCK)
   }

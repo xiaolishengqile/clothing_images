@@ -78,7 +78,7 @@ const FABRIC_VARIANT_OPTIONS: { id: FabricVariant; label: string; hint: string }
   { id: 'standard', label: '标准', hint: '整件替换（默认）' },
   { id: 'skirtOnly', label: '裙子模式', hint: '只换下装，上衣不变' },
   { id: 'separates', label: '上下装分离', hint: '上衣、下装分别替换' },
-  { id: 'separatesDual', label: '双参考', hint: '上衣、下装分开上传' },
+  { id: 'separatesDual', label: '双参考', hint: '只取花色，不取版型' },
 ]
 
 function loadWorkMode(): WorkMode {
@@ -1114,7 +1114,7 @@ export default function App() {
           <div className="mode-panel-note" style={{ marginTop: 12, padding: '10px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8 }}>
             <p style={{ margin: 0, fontSize: 13, color: '#1d4ed8', lineHeight: 1.5 }}>
               <strong> 双参考提示：</strong>
-              上衣参考图只放上衣，下装参考图只放裤子/裙子，模型会分别替换目标图里的上衣和下装，避免上下装花纹混用。
+              上衣和下装参考图只提供颜色、花色、图案、纹理，不提供版型。目标图原本是圆领就保持圆领，原本是裙子就保持裙子。
             </p>
           </div>
         )}
@@ -1268,7 +1268,7 @@ export default function App() {
                 <h2>上传「上衣参考图」</h2>
               </div>
               <p className="step-desc">
-                只放上衣布料/颜色/花纹。生成时只用于目标图上衣。
+                只取上衣的颜色、花色、图案、纹理；不取领型、袖型、衣长、开襟或宽松度。
               </p>
 
               <div className="upload-card">
@@ -1327,7 +1327,7 @@ export default function App() {
                 <h2>上传「下装参考图」</h2>
               </div>
               <p className="step-desc">
-                只放裤子/裙子布料/颜色/花纹。生成时只用于目标图下装。
+                只取下装的颜色、花色、图案、纹理；不取裤型、裙型、长短、腰线或廓形。
               </p>
 
               <div className="upload-card">

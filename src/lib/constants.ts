@@ -125,27 +125,35 @@ export const PROMPT_SEPARATES_MODE_EDIT = `SEPARATES MODE — replace top and bo
 - Forbidden: applying the top fabric to the bottom, or the bottom fabric to the top.
 - Forbidden: blending the two fabrics together or treating the SECOND image as a single textile source.`
 
-/** 上下装双参考模式 — 生成接口（图1=上衣参考，图2=下装参考，图3=目标图） */
-export const PROMPT_SEPARATES_DUAL_MODE = `SEPARATES DUAL-REFERENCE MODE — replace top and bottom from two separate references (mandatory):
-- Image 1 contains ONLY the TOP / BLOUSE / SHIRT fabric reference. It is the sole authority for the TOP fabric color, print, and texture.
-- Image 2 contains ONLY the BOTTOM / SKIRT / PANTS fabric reference. It is the sole authority for the BOTTOM fabric color, print, and texture.
-- Image 3 is the target product/model photo. It defines the scene, person, pose, framing, garment cut, fit, folds, shadows, and construction.
-- Apply Image 1 textile ONLY to the TOP in Image 3.
-- Apply Image 2 textile ONLY to the BOTTOM garment in Image 3.
-- Preserve Image 3 garment categories and boundaries: top stays top, bottom stays bottom; never merge pieces into a dress or jumpsuit.
-- Forbidden: applying Image 1 to the bottom, applying Image 2 to the top, mixing the two fabrics, copying garment silhouettes from reference images, or redesigning the outfit.
-- Keep Image 3 background, model, pose, accessories, lighting, crop, garment shape, fit, and drape unchanged.`
+/** 上下装双参考模式 — 生成接口（图1=上衣表面参考，图2=下装表面参考，图3=目标图） */
+export const PROMPT_SEPARATES_DUAL_MODE = `SEPARATES DUAL-REFERENCE FABRIC SURFACE MODE — transfer surface appearance only (mandatory):
+- Image 1 is the TOP SURFACE reference only. Read only cloth color palette, print / motif / flower pattern, pattern scale, weave, material feel, and surface texture for the TOP area.
+- Image 2 is the BOTTOM SURFACE reference only. Read only cloth color palette, print / motif / flower pattern, pattern scale, weave, material feel, and surface texture for the BOTTOM area.
+- Image 3 is the only authority for the final outfit structure: scene, person, pose, framing, garment categories, cut, fit, folds, shadows, construction, and all garment boundaries.
+- Apply Image 1's surface appearance ONLY onto the existing TOP cloth surfaces in Image 3, warped to Image 3's original folds and seams.
+- Apply Image 2's surface appearance ONLY onto the existing BOTTOM cloth surfaces in Image 3, warped to Image 3's original folds and seams.
+- Ignore every structural feature from Image 1 and Image 2: garment category, silhouette, neckline, collar, placket, opening shape, sleeve style, sleeve length, waist, leg shape, skirt shape, hem, pockets, buttons, trims, closure layout, and overall pattern-making.
+- Category lock: if Image 3's top is not V-neck, do NOT make it V-neck even when Image 1 is V-neck. If Image 3's bottom is a skirt, it MUST remain a skirt even when Image 2 is pants. If Image 3's bottom is pants, it MUST remain pants even when Image 2 is a skirt.
+- Preserve Image 3 garment categories and boundaries: top stays top, bottom stays bottom; never turn a skirt into pants, pants into skirt, separates into a dress/jumpsuit, or a dress into separates.
+- Forbidden: copying garment silhouettes or cut from reference images; changing neckline, sleeve type, waistline, hem, length, fit, looseness, drape, category, pose, body shape, accessories, or background.
+- Keep Image 3 background, model identity, face, hair, pose, accessories, lighting, crop, garment shape, fit, and drape unchanged.
 
-/** 上下装双参考模式 — 编辑接口（第一张=目标图，第二张=上衣参考，第三张=下装参考） */
-export const PROMPT_SEPARATES_DUAL_MODE_EDIT = `SEPARATES DUAL-REFERENCE MODE — replace top and bottom from two separate references (mandatory):
-- FIRST image is the target product/model photo. It defines the scene, person, pose, framing, garment cut, fit, folds, shadows, and construction.
-- SECOND image contains ONLY the TOP / BLOUSE / SHIRT fabric reference. It is the sole authority for the TOP fabric color, print, and texture.
-- THIRD image contains ONLY the BOTTOM / SKIRT / PANTS fabric reference. It is the sole authority for the BOTTOM fabric color, print, and texture.
-- Apply the SECOND image textile ONLY to the TOP in the FIRST image.
-- Apply the THIRD image textile ONLY to the BOTTOM garment in the FIRST image.
-- Preserve FIRST image garment categories and boundaries: top stays top, bottom stays bottom; never merge pieces into a dress or jumpsuit.
-- Forbidden: applying the SECOND image to the bottom, applying the THIRD image to the top, mixing the two fabrics, copying garment silhouettes from reference images, or redesigning the outfit.
-- Keep FIRST image background, model, pose, accessories, lighting, crop, garment shape, fit, and drape unchanged.`
+中文要求：图片1和图片2只作为“布面外观参考”，只取颜色、花色、图案、纹理、材质感；严禁参考它们的版型。最终衣服的领型、袖型、衣长、腰线、裙型/裤型、松量、轮廓全部以图片3为准。图片1是V领也不能把目标上衣改成V领；图片2是裤子也不能把目标裙子改成裤子。只在目标图原有衣服表面换颜色和花纹。`
+
+/** 上下装双参考模式 — 编辑接口（第一张=目标图，第二张=上衣表面参考，第三张=下装表面参考） */
+export const PROMPT_SEPARATES_DUAL_MODE_EDIT = `SEPARATES DUAL-REFERENCE FABRIC SURFACE MODE — transfer surface appearance only (mandatory):
+- FIRST image is the only authority for the final outfit structure: scene, person, pose, framing, garment categories, cut, fit, folds, shadows, construction, and all garment boundaries.
+- SECOND image is the TOP SURFACE reference only. Read only cloth color palette, print / motif / flower pattern, pattern scale, weave, material feel, and surface texture for the TOP area.
+- THIRD image is the BOTTOM SURFACE reference only. Read only cloth color palette, print / motif / flower pattern, pattern scale, weave, material feel, and surface texture for the BOTTOM area.
+- Apply the SECOND image's surface appearance ONLY onto the existing TOP cloth surfaces in the FIRST image, warped to the FIRST image's original folds and seams.
+- Apply the THIRD image's surface appearance ONLY onto the existing BOTTOM cloth surfaces in the FIRST image, warped to the FIRST image's original folds and seams.
+- Ignore every structural feature from the SECOND and THIRD images: garment category, silhouette, neckline, collar, placket, opening shape, sleeve style, sleeve length, waist, leg shape, skirt shape, hem, pockets, buttons, trims, closure layout, and overall pattern-making.
+- Category lock: if the FIRST image's top is not V-neck, do NOT make it V-neck even when the SECOND image is V-neck. If the FIRST image's bottom is a skirt, it MUST remain a skirt even when the THIRD image is pants. If the FIRST image's bottom is pants, it MUST remain pants even when the THIRD image is a skirt.
+- Preserve FIRST image garment categories and boundaries: top stays top, bottom stays bottom; never turn a skirt into pants, pants into skirt, separates into a dress/jumpsuit, or a dress into separates.
+- Forbidden: copying garment silhouettes or cut from reference images; changing neckline, sleeve type, waistline, hem, length, fit, looseness, drape, category, pose, body shape, accessories, or background.
+- Keep FIRST image background, model identity, face, hair, pose, accessories, lighting, crop, garment shape, fit, and drape unchanged.
+
+中文要求：图片2和图片3只作为“布面外观参考”，只取颜色、花色、图案、纹理、材质感；严禁参考它们的版型。最终衣服的领型、袖型、衣长、腰线、裙型/裤型、松量、轮廓全部以图片1为准。图片2是V领也不能把目标上衣改成V领；图片3是裤子也不能把目标裙子改成裤子。只在目标图原有衣服表面换颜色和花纹。`
 
 const PROMPT_GARMENT_STRUCTURE_LOCK = `GARMENT STRUCTURE LOCK — image 2 is the only authority for cut (mandatory):
 - Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short puff sleeves stay short puff — NOT slim bell or elbow unless image 2 has them), hem, seams, layers, and piece count.

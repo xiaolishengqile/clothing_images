@@ -156,13 +156,17 @@ export const PROMPT_SEPARATES_DUAL_MODE = `SEPARATES DUAL-REFERENCE FABRIC SURFA
 - Image 3 is the only authority for the final outfit structure: scene, person, pose, framing, garment categories, cut, fit, folds, shadows, construction, and all garment boundaries.
 - Apply Image 1's surface appearance ONLY onto the existing TOP cloth surfaces in Image 3, warped to Image 3's original folds and seams.
 - Apply Image 2's surface appearance ONLY onto the existing BOTTOM cloth surfaces in Image 3, warped to Image 3's original folds and seams.
+- NON-SWAPPABLE ASSIGNMENT LOCK: Image 1 -> TOP area ONLY; Image 2 -> BOTTOM area ONLY. This mapping is fixed by image order, not by visual similarity, color harmony, or where the pattern would look better.
+- Build two internal masks before editing: TOP_MASK = bodice / blouse / shirt / upper torso cloth in Image 3; BOTTOM_MASK = skirt / pants / lower garment cloth in Image 3. Apply Image 1 only inside TOP_MASK and Image 2 only inside BOTTOM_MASK.
+- If Image 3 is a one-piece dress, split it by the original waist seam or natural waist boundary: bodice/chest/upper part = TOP_MASK, skirt below waist = BOTTOM_MASK. The dress remains one piece, but the two fabric references must not be swapped.
+- Critical failure examples: using Image 2's print on the bodice/top is wrong; using Image 1's print/color on the skirt/bottom is wrong; making the entire outfit use only one reference is wrong.
 - Ignore every structural feature from Image 1 and Image 2: garment category, silhouette, neckline, collar, placket, opening shape, sleeve style, sleeve length, waist, leg shape, skirt shape, hem, pockets, buttons, trims, closure layout, and overall pattern-making.
 - Category lock: if Image 3's top is not V-neck, do NOT make it V-neck even when Image 1 is V-neck. If Image 3's bottom is a skirt, it MUST remain a skirt even when Image 2 is pants. If Image 3's bottom is pants, it MUST remain pants even when Image 2 is a skirt.
 - Preserve Image 3 garment categories and boundaries: top stays top, bottom stays bottom; never turn a skirt into pants, pants into skirt, separates into a dress/jumpsuit, or a dress into separates.
 - Forbidden: copying garment silhouettes or cut from reference images; changing neckline, sleeve type, waistline, hem, length, fit, looseness, drape, category, pose, body shape, accessories, or background.
 - Keep Image 3 background, model identity, face, hair, pose, accessories, lighting, crop, garment shape, fit, and drape unchanged.
 
-中文要求：图片1和图片2只作为“布面外观参考”，只取颜色、花色、图案、纹理、材质感；严禁参考它们的版型。最终衣服的领型、袖型、衣长、腰线、裙型/裤型、松量、轮廓全部以图片3为准。图片1是V领也不能把目标上衣改成V领；图片2是裤子也不能把目标裙子改成裤子。只在目标图原有衣服表面换颜色和花纹。`
+中文要求：图片1和图片2只作为“布面外观参考”，只取颜色、花色、图案、纹理、材质感；严禁参考它们的版型。映射绝对不能弄反：图片1永远只贴到目标图的上衣/上半身/连衣裙上半身区域；图片2永远只贴到目标图的下装/裙摆/裤子区域。如果目标图是连衣裙，按原腰线或自然腰线分成上半身和裙摆，图片1贴上半身，图片2贴裙摆。把图片2花色贴到上半身是错误；把图片1花色贴到裙摆是错误。最终衣服的领型、袖型、衣长、腰线、裙型/裤型、松量、轮廓全部以图片3为准。图片1是V领也不能把目标上衣改成V领；图片2是裤子也不能把目标裙子改成裤子。只在目标图原有衣服表面换颜色和花纹。`
 
 /** 上下装双参考模式 — 编辑接口（第一张=目标图，第二张=上衣表面参考，第三张=下装表面参考） */
 export const PROMPT_SEPARATES_DUAL_MODE_EDIT = `SEPARATES DUAL-REFERENCE FABRIC SURFACE MODE — transfer surface appearance only (mandatory):
@@ -171,13 +175,17 @@ export const PROMPT_SEPARATES_DUAL_MODE_EDIT = `SEPARATES DUAL-REFERENCE FABRIC 
 - THIRD image is the BOTTOM SURFACE reference only. Read only cloth color palette, print / motif / flower pattern, pattern scale, weave, material feel, and surface texture for the BOTTOM area.
 - Apply the SECOND image's surface appearance ONLY onto the existing TOP cloth surfaces in the FIRST image, warped to the FIRST image's original folds and seams.
 - Apply the THIRD image's surface appearance ONLY onto the existing BOTTOM cloth surfaces in the FIRST image, warped to the FIRST image's original folds and seams.
+- NON-SWAPPABLE ASSIGNMENT LOCK: SECOND image -> TOP area ONLY; THIRD image -> BOTTOM area ONLY. This mapping is fixed by image order, not by visual similarity, color harmony, or where the pattern would look better.
+- Build two internal masks before editing: TOP_MASK = bodice / blouse / shirt / upper torso cloth in the FIRST image; BOTTOM_MASK = skirt / pants / lower garment cloth in the FIRST image. Apply the SECOND image only inside TOP_MASK and the THIRD image only inside BOTTOM_MASK.
+- If the FIRST image is a one-piece dress, split it by the original waist seam or natural waist boundary: bodice/chest/upper part = TOP_MASK, skirt below waist = BOTTOM_MASK. The dress remains one piece, but the two fabric references must not be swapped.
+- Critical failure examples: using the THIRD image's print on the bodice/top is wrong; using the SECOND image's print/color on the skirt/bottom is wrong; making the entire outfit use only one reference is wrong.
 - Ignore every structural feature from the SECOND and THIRD images: garment category, silhouette, neckline, collar, placket, opening shape, sleeve style, sleeve length, waist, leg shape, skirt shape, hem, pockets, buttons, trims, closure layout, and overall pattern-making.
 - Category lock: if the FIRST image's top is not V-neck, do NOT make it V-neck even when the SECOND image is V-neck. If the FIRST image's bottom is a skirt, it MUST remain a skirt even when the THIRD image is pants. If the FIRST image's bottom is pants, it MUST remain pants even when the THIRD image is a skirt.
 - Preserve FIRST image garment categories and boundaries: top stays top, bottom stays bottom; never turn a skirt into pants, pants into skirt, separates into a dress/jumpsuit, or a dress into separates.
 - Forbidden: copying garment silhouettes or cut from reference images; changing neckline, sleeve type, waistline, hem, length, fit, looseness, drape, category, pose, body shape, accessories, or background.
 - Keep FIRST image background, model identity, face, hair, pose, accessories, lighting, crop, garment shape, fit, and drape unchanged.
 
-中文要求：图片2和图片3只作为“布面外观参考”，只取颜色、花色、图案、纹理、材质感；严禁参考它们的版型。最终衣服的领型、袖型、衣长、腰线、裙型/裤型、松量、轮廓全部以图片1为准。图片2是V领也不能把目标上衣改成V领；图片3是裤子也不能把目标裙子改成裤子。只在目标图原有衣服表面换颜色和花纹。`
+中文要求：图片2和图片3只作为“布面外观参考”，只取颜色、花色、图案、纹理、材质感；严禁参考它们的版型。映射绝对不能弄反：图片2永远只贴到目标图的上衣/上半身/连衣裙上半身区域；图片3永远只贴到目标图的下装/裙摆/裤子区域。如果目标图是连衣裙，按原腰线或自然腰线分成上半身和裙摆，图片2贴上半身，图片3贴裙摆。把图片3花色贴到上半身是错误；把图片2花色贴到裙摆是错误。最终衣服的领型、袖型、衣长、腰线、裙型/裤型、松量、轮廓全部以图片1为准。图片2是V领也不能把目标上衣改成V领；图片3是裤子也不能把目标裙子改成裤子。只在目标图原有衣服表面换颜色和花纹。`
 
 const PROMPT_GARMENT_STRUCTURE_LOCK = `GARMENT STRUCTURE LOCK — image 2 is the only authority for cut (mandatory):
 - Match image 2 exactly: garment category, silhouette, neckline, collar, placket, button count and placement, sleeve length, sleeve type (e.g. short puff sleeves stay short puff — NOT slim bell or elbow unless image 2 has them), hem, seams, layers, piece count, trims, binding, ruffles, overlock/serged edges, topstitching, pocket shape, labels, closures, and panel joins.
@@ -375,6 +383,24 @@ export const PROMPT_WEAR_MODE_EDIT = `WEAR MODE — put the exact product garmen
 
 中文要求：图片2的商品衣服是唯一服装标准，必须严格保留它的版型、颜色、花色、图案、材质、领型、袖型、衣长、裤型/裙型、松量和所有细节。图片1只参考模特姿势、场景、配饰、背景、光线和构图；严禁参考图片1里原衣服的版型、颜色、花纹或风格。`
 
+/** 提取花色模式 — 从成衣/布面照片生成无缝循环印花图 */
+export const PROMPT_PATTERN_EXTRACT = `SEAMLESS PATTERN EXTRACTION MODE — turn the source photo into a tileable textile repeat (mandatory):
+- Input image is a garment or fabric photo containing a visible print. Extract ONLY the print design: colors, motifs, motif scale, spacing, repeat direction, and overall textile style.
+- This is NOT a photo edit. Do not preserve the input photo canvas, garment shape, folds, seams, or lighting. Redraw the print as new clean artwork using the input only as a visual reference.
+- Output a clean flat 2D seamless repeat tile for textile printing. The image must be tileable horizontally and vertically.
+- The LEFT edge must connect naturally to the RIGHT edge; the TOP edge must connect naturally to the BOTTOM edge. Motifs crossing an edge must continue on the opposite edge with matching color, scale, direction, and spacing.
+- There must be no visible border, frame, cut-off seam, hard edge, broken motif, empty strip, or obvious square boundary when tiled in a grid.
+- Distribute motifs so the repeat feels continuous across the whole tile, not like one large centered illustration copied on a square.
+- Redraw motifs with smooth continuous curves, crisp clean edges, and vector-like flat color areas. Leaves, stems, petals, and negative spaces must look intentional and flowing, not torn, jagged, wrinkled, melted, or broken.
+- Remove all garment/photo artifacts: body shape, pants/skirt legs, seams, waistline, hems, folds, wrinkles, shadows, highlights, perspective distortion, fabric drape, background, props, hands, skin, labels, and lighting gradients.
+- Reconstruct the print on a perfectly flat plane with even lighting and no fabric texture unless the print itself requires subtle material grain.
+- Preserve the source color relationship accurately, including background color and motif color. Do not swap foreground/background colors.
+- Preserve the recognizable motif identity from the source photo. If the photo only shows part of the repeat, infer a plausible continuous repeat from the visible motifs without inventing a different print style.
+- Fill the entire square canvas edge-to-edge with the flat repeated pattern. No borders, no mockup, no garment, no perspective, no shadows, no vertical pant-leg seam, no central crease.
+- The result should look like a digital seamless textile repeat tile ready to use as a fabric reference image.
+
+中文要求：从用户上传的成衣/布料照片中提取花色，生成干净的“无缝循环/连续印花”方形图案。重点是可以上下左右重复平铺：左边必须能自然接右边，上边必须能自然接下边；图案跨出边缘时要在另一侧连续出现，颜色、比例、方向和间距要对上。不能有边框、断边、硬切痕、空白边、明显方块边界或拼接缝。这不是修原图，不能保留原图的裤腿结构、褶皱、中缝、阴影和高光；必须按参考花型重新绘制成平整的图案文件。只保留颜色、叶子/花朵/几何等图案、图案比例和重复排列；叶片、枝条和留白边缘要顺滑、连续、干净，像矢量印花稿，不要破碎、锯齿、融化、皱巴巴或被裤缝切断。输出必须是满画布平铺的方形无缝循环 tile，不要生成衣服或模特。`
+
 /** 默认追加说明（简短中文，强化「必须换布」） */
 export const DEFAULT_PROMPT_SUFFIX =
   '【必做】第1张图的布面颜色/花纹/肌理必须完整替换第2张图所有衣服布面；保留目标图原印花是错误的。第1张若无印花则按纯色/肌理替换。版型、松量、腰线、轮廓必须与目标图完全一致，禁止收腰修身、禁止改变宽松度，只换布面。袖型、领型、裁剪和工艺做法亦须与目标图一致。去除非设计本身的临时褶皱、压痕和拍摄折痕。除衣服布面外，目标图其余内容保持不变。'
@@ -420,6 +446,8 @@ export const STORAGE_KEY_COLOR_CHANGE = 'clothing_tool_color_change'
 export const STORAGE_KEY_COLOR_CHANGE_PROTECT_NEUTRALS = 'clothing_tool_color_change_protect_neutrals'
 /** 上身展示模式：商品平铺图穿到参考图模特身上 */
 export const STORAGE_KEY_WEAR_MODE = 'clothing_tool_wear_mode'
+/** 提取花色模式：成衣/布面照片转无缝循环印花图 */
+export const STORAGE_KEY_PATTERN_EXTRACT_MODE = 'clothing_tool_pattern_extract_mode'
 /** 色卡模式：一张正面图 + 一张编号色卡批量生成正/背面 */
 export const STORAGE_KEY_COLOR_CARD_MODE = 'clothing_tool_color_card_mode'
 /** 色卡模式：编号数量，按 1-N 展开 */

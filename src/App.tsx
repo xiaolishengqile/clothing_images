@@ -28,6 +28,7 @@ import {
   PROMPT_SOLID_FABRIC_EDIT,
   PROMPT_SKIRT_ONLY,
   PROMPT_SKIRT_ONLY_EDIT,
+  PROMPT_PATTERN_EXTRACT,
   PROMPT_WEAR_MODE,
   PROMPT_WEAR_MODE_EDIT,
   SIZE_OPTIONS,
@@ -40,6 +41,7 @@ import {
   STORAGE_KEY_COLOR_CARD_MODE,
   STORAGE_KEY_FOLLOW_TARGET_ASPECT,
   STORAGE_KEY_FABRIC_CLOSEUP_MODE,
+  STORAGE_KEY_PATTERN_EXTRACT_MODE,
   STORAGE_KEY_PROMPT,
   STORAGE_KEY_SIZE,
   STORAGE_KEY_SOLID_FABRIC,
@@ -65,8 +67,8 @@ import './App.css'
 
 type JobStatus = 'queued' | 'running' | 'done' | 'error'
 type PasteTarget = 'fabric' | 'fabricTop' | 'fabricBottom' | 'target' | 'colorCardBack'
-/** 主工作模式：换布（默认）、一键换色、上身展示、色卡 */
-type WorkMode = 'fabric' | 'colorChange' | 'wear' | 'colorCard'
+/** 主工作模式：换布（默认）、一键换色、上身展示、提取花色、色卡 */
+type WorkMode = 'fabric' | 'colorChange' | 'wear' | 'patternExtract' | 'colorCard'
 type ColorCardView = 'front' | 'back'
 /** 换布变体：标准正面 / 标准背面 / 裙子 / 上下装分离 / 上下装双参考 / 局部布样 */
 type FabricVariant = 'standardFront' | 'standardBack' | 'skirtOnly' | 'separates' | 'separatesDual' | 'fabricCloseup'
@@ -75,6 +77,7 @@ const WORK_MODE_OPTIONS: { id: WorkMode; label: string; hint: string }[] = [
   { id: 'fabric', label: '换布', hint: '布料图替换花纹' },
   { id: 'colorChange', label: '换色', hint: '保留白底花纹' },
   { id: 'wear', label: '上身', hint: '保商品版型花色' },
+  { id: 'patternExtract', label: '提花色', hint: '成衣图转无缝印花' },
   { id: 'colorCard', label: '色卡', hint: '编号色卡批量正背面' },
 ]
 
@@ -93,6 +96,7 @@ const FABRIC_VARIANT_OPTIONS: { id: FabricVariant; label: string; hint: string }
 
 function loadWorkMode(): WorkMode {
   if (localStorage.getItem(STORAGE_KEY_COLOR_CARD_MODE) === '1') return 'colorCard'
+  if (localStorage.getItem(STORAGE_KEY_PATTERN_EXTRACT_MODE) === '1') return 'patternExtract'
   if (localStorage.getItem(STORAGE_KEY_WEAR_MODE) === '1') return 'wear'
   if (localStorage.getItem(STORAGE_KEY_COLOR_CHANGE) === '1') return 'colorChange'
   return 'fabric'
@@ -201,6 +205,7 @@ export default function App() {
   const [colorCardCountInput, setColorCardCountInput] = useState(() => String(loadColorCardCount()))
   const colorChangeMode = workMode === 'colorChange'
   const wearMode = workMode === 'wear'
+  const patternExtractMode = workMode === 'patternExtract'
   const colorCardMode = workMode === 'colorCard'
   const inFabricMode = workMode === 'fabric'
   const standardFrontMode = inFabricMode && fabricVariant === 'standardFront'
@@ -292,6 +297,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_COLOR_CHANGE, workMode === 'colorChange' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_WEAR_MODE, workMode === 'wear' ? '1' : '0')
+    localStorage.setItem(STORAGE_KEY_PATTERN_EXTRACT_MODE, workMode === 'patternExtract' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_COLOR_CARD_MODE, workMode === 'colorCard' ? '1' : '0')
   }, [workMode])
   useEffect(() => {
@@ -513,6 +519,7 @@ export default function App() {
         isStrictFraming: fabricCloseupMode ? true : undefined,
       }))
       setJobs((prev) => [...prev, ...newJobs])
+      if (patternExtractMode) return
       for (const job of newJobs) {
         void checkTargetImage(job.file).then(({ warnings }) => {
           updateJob(job.id, {
@@ -521,7 +528,7 @@ export default function App() {
         })
       }
     },
-    [colorCardCount, colorCardMode, fabricCloseupMode, replaceColorCardJobs, updateJob],
+    [colorCardCount, colorCardMode, fabricCloseupMode, patternExtractMode, replaceColorCardJobs, updateJob],
   )
 
   const handlePaste = useCallback(
@@ -614,11 +621,11 @@ export default function App() {
       alert('请填写接口地址。')
       return
     }
-    if (!colorChangeMode && !wearMode && !colorCardMode && separatesDualMode && (!fabricTopSource || !fabricBottomSource)) {
+    if (!patternExtractMode && !colorChangeMode && !wearMode && !colorCardMode && separatesDualMode && (!fabricTopSource || !fabricBottomSource)) {
       alert('请先上传「上衣参考图」和「下装参考图」')
       return
     }
-    if (!colorChangeMode && !wearMode && !separatesDualMode && !fabricSource) {
+    if (!patternExtractMode && !colorChangeMode && !wearMode && !separatesDualMode && !fabricSource) {
       alert(colorCardMode ? '请先上传「编号色卡图」' : fabricCloseupMode ? '请先上传「新布料图」' : '请先上传「布料图」或「商品图」')
       return
     }
@@ -627,7 +634,7 @@ export default function App() {
       return
     }
     if (jobs.length === 0) {
-      alert(colorCardMode ? '请上传一张「正面模特参考图」' : wearMode ? '请至少上传一张「商品图」' : fabricCloseupMode ? '请至少上传一张「局部布样模板」' : '请至少上传一张「要换的图」')
+      alert(colorCardMode ? '请上传一张「正面模特参考图」' : wearMode ? '请至少上传一张「商品图」' : patternExtractMode ? '请至少上传一张「花色来源图」' : fabricCloseupMode ? '请至少上传一张「局部布样模板」' : '请至少上传一张「要换的图」')
       return
     }
 
@@ -652,6 +659,8 @@ export default function App() {
     const fullPrompt = [
       colorCardMode
         ? ''
+        : patternExtractMode
+          ? PROMPT_PATTERN_EXTRACT
         : colorChangeMode
           ? buildColorChangePrompt(useEditsApi, selectedColor)
           : wearMode
@@ -661,10 +670,10 @@ export default function App() {
               : fabricCloseupMode
                 ? fabricCloseupPrompt
                 : buildPrompt(queue.length > 1),
-      wearMode || colorCardMode || separatesDualMode || fabricCloseupMode || colorChangeMode ? '' : DEFAULT_PROMPT_SUFFIX,
-      !colorChangeMode && !separatesDualMode && !fabricCloseupMode && isSolidFabric ? solidPrompt : '',
-      !colorChangeMode && !fabricCloseupMode && skirtOnlyMode ? skirtOnlyPrompt : '',
-      !colorChangeMode && !fabricCloseupMode && separatesMode ? separatesPrompt : '',
+      wearMode || colorCardMode || separatesDualMode || fabricCloseupMode || patternExtractMode || colorChangeMode ? '' : DEFAULT_PROMPT_SUFFIX,
+      !patternExtractMode && !colorChangeMode && !separatesDualMode && !fabricCloseupMode && isSolidFabric ? solidPrompt : '',
+      !patternExtractMode && !colorChangeMode && !fabricCloseupMode && skirtOnlyMode ? skirtOnlyPrompt : '',
+      !patternExtractMode && !colorChangeMode && !fabricCloseupMode && separatesMode ? separatesPrompt : '',
       promptExtra.trim(),
     ]
       .filter(Boolean)
@@ -674,7 +683,7 @@ export default function App() {
     let fabricTopPayload: string | undefined
     let fabricBottomPayload: string | undefined
     let wearRefPayload: string | undefined
-    if (!useEditsApi && !colorChangeMode && !wearMode && !separatesDualMode && fabricSource) {
+    if (!useEditsApi && !patternExtractMode && !colorChangeMode && !wearMode && !separatesDualMode && fabricSource) {
       try {
         fabricPayload = await encodeImage(fabricSource.file)
       } catch (e) {
@@ -716,7 +725,10 @@ export default function App() {
       try {
         let jobAspect = aspectRatio
         let jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
-        if (followTargetAspect || fabricCloseupMode) {
+        if (patternExtractMode) {
+          jobAspect = '1:1'
+          jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
+        } else if (followTargetAspect || fabricCloseupMode) {
           const { width, height } = await getImageDimensions(job.file)
           jobAspect = closestAspectLabel(width, height)
           jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
@@ -724,9 +736,9 @@ export default function App() {
 
         const jobPromptSuffix = buildPerJobPromptSuffix({
           warnings: job.warnings ?? [],
-          isFrontView: !fabricCloseupMode && standardFrontMode,
-          isBackView: fabricCloseupMode ? false : colorCardMode ? false : standardBackMode || (!standardFrontMode && job.isBackView === true),
-          isStrictFraming: fabricCloseupMode || job.isStrictFraming === true,
+          isFrontView: !patternExtractMode && !fabricCloseupMode && standardFrontMode,
+          isBackView: patternExtractMode || fabricCloseupMode ? false : colorCardMode ? false : standardBackMode || (!standardFrontMode && job.isBackView === true),
+          isStrictFraming: !patternExtractMode && (fabricCloseupMode || job.isStrictFraming === true),
           forEdits: useEditsApi,
         })
         const colorCardPrompt =
@@ -745,15 +757,15 @@ export default function App() {
             : ''
         const prompt = [
           colorCardPrompt || fullPrompt,
-          fabricCloseupMode ? '' : PROMPT_GLOBAL_CLEAN_CRAFT_LOCK,
-          jobPromptSuffix,
+          fabricCloseupMode || patternExtractMode ? '' : PROMPT_GLOBAL_CLEAN_CRAFT_LOCK,
+          patternExtractMode ? '' : jobPromptSuffix,
           colorCardMode ? promptExtra.trim() : '',
         ]
           .filter(Boolean)
           .join('\n\n')
 
         let imageDataUrl: string
-        if (useEditsApi) {
+        if (useEditsApi && !patternExtractMode) {
           const result = await postImagesEdits(
             base,
             token,
@@ -764,6 +776,8 @@ export default function App() {
               aspect_ratio: jobAspect,
               images: colorChangeMode
                 ? [job.file]
+                : patternExtractMode
+                  ? [job.file]
                 : colorCardMode
                   ? [job.file, fabricSource!.file]
                   : separatesDualMode
@@ -784,6 +798,8 @@ export default function App() {
             aspect_ratio: jobAspect,
             image: colorCardMode
               ? [fabricPayload!, garmentPayload]
+              : patternExtractMode
+                ? [garmentPayload]
               : separatesDualMode
                 ? [fabricTopPayload!, fabricBottomPayload!, garmentPayload]
               : wearMode
@@ -848,6 +864,7 @@ export default function App() {
     isSolidFabric,
     jobs,
     model,
+    patternExtractMode,
     promptExtra,
     protectNeutralAreas,
     separatesDualMode,
@@ -886,7 +903,9 @@ export default function App() {
     })
   }, [colorCardMode, jobs])
 
-  const canStart = colorChangeMode
+  const canStart = patternExtractMode
+    ? Boolean(jobs.length > 0 && apiToken.trim())
+    : colorChangeMode
     ? Boolean(jobs.length > 0 && apiToken.trim())
     : colorCardMode
       ? Boolean(fabricSource && jobs.length > 0 && apiToken.trim())
@@ -913,6 +932,7 @@ export default function App() {
       const viewLabel = job.colorCardView === 'back' ? '背面图' : '正面图'
       return `色卡 ${job.colorCardNumber} ${viewLabel}`
     }
+    if (patternExtractMode) return '无缝印花'
     return '换布后'
   }
 
@@ -922,10 +942,11 @@ export default function App() {
       const view = job.colorCardView === 'back' ? '背面' : '正面'
       return `色卡${number}_${view}`
     }
-    return `${safeBaseName(job.file.name.replace(/\.[^.]+$/, ''))}_换布结果`
+    return `${safeBaseName(job.file.name.replace(/\.[^.]+$/, ''))}_${patternExtractMode ? '无缝印花' : '换布结果'}`
   }
 
   const jobReferenceLabel = (job: Job) => {
+    if (patternExtractMode) return '来源图'
     if (!job.colorCardNumber) return '目标图'
     if (job.colorCardView === 'back' && job.colorCardUsesBackReference) return '背面参考'
     return '正面参考'
@@ -953,7 +974,7 @@ export default function App() {
       zip.file(`${jobDownloadStem(job)}.png`, blob)
     }
     const out = await zip.generateAsync({ type: 'blob' })
-    saveAs(out, `${colorCardMode ? '色卡结果' : '换布结果'}-${new Date().toISOString().slice(0, 10)}.zip`)
+    saveAs(out, `${colorCardMode ? '色卡结果' : patternExtractMode ? '无缝印花结果' : '换布结果'}-${new Date().toISOString().slice(0, 10)}.zip`)
   }
 
   return (
@@ -1151,6 +1172,15 @@ export default function App() {
           </div>
         )}
 
+        {patternExtractMode && (
+          <div className="mode-panel-note" style={{ marginTop: 12, padding: '10px 12px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+            <p style={{ margin: 0, fontSize: 13, color: '#334155', lineHeight: 1.5 }}>
+              <strong> 提花色提示：</strong>
+              从成衣照片里提取颜色和图案，输出 1:1 方形无缝循环印花；上下左右重复平铺时边缘应自然连续。
+            </p>
+          </div>
+        )}
+
         {colorChangeMode && (
           <div className="mode-panel-section mode-panel-sub mode-panel-color">
             <span className="mode-panel-label">目标颜色</span>
@@ -1222,7 +1252,7 @@ export default function App() {
 
       <main className="app-main">
         <div className={`upload-steps-row${colorCardMode || separatesDualMode ? ' compact-upload-row' : ''}`}>
-          {!colorChangeMode && !wearMode && !separatesDualMode && (
+          {!patternExtractMode && !colorChangeMode && !wearMode && !separatesDualMode && (
           <section
             className={`step-card step-card-upload paste-zone${pasteTarget === 'fabric' ? ' paste-zone-active' : ''}${fabricSource ? ' step-card-done' : ''}`}
             tabIndex={0}
@@ -1490,8 +1520,8 @@ export default function App() {
             onPaste={(e) => handlePaste(e, 'target')}
           >
             <div className="step-card-head">
-              <span className="step-badge">{colorChangeMode ? '最后一步' : separatesDualMode ? '第 3 步' : '第 2 步'}</span>
-              <h2>{colorCardMode ? '上传「正面模特参考图」' : wearMode ? '上传「商品图」' : fabricCloseupMode ? '上传「局部布样模板」' : '上传「要换的图」'}</h2>
+              <span className="step-badge">{colorChangeMode || patternExtractMode ? '最后一步' : separatesDualMode ? '第 3 步' : '第 2 步'}</span>
+              <h2>{colorCardMode ? '上传「正面模特参考图」' : wearMode ? '上传「商品图」' : patternExtractMode ? '上传「花色来源图」' : fabricCloseupMode ? '上传「局部布样模板」' : '上传「要换的图」'}</h2>
             </div>
             <p className="step-desc">
               {colorCardMode ? (
@@ -1501,6 +1531,10 @@ export default function App() {
               ) : wearMode ? (
                 <>
                   请传<strong>平铺/挂拍商品图</strong>（要严格保留的衣服），会保留商品的版型、颜色、花色、图案和细节。
+                </>
+              ) : patternExtractMode ? (
+                <>
+                  请传<strong>带花色的成衣或布料照片</strong>。系统会提取图案、颜色和重复关系，生成可上下左右平铺的方形无缝印花。
                 </>
               ) : fabricCloseupMode ? (
                 <>
@@ -1529,7 +1563,7 @@ export default function App() {
               <p className="dropzone-title">拖入图片，或点击选择</p>
               <p className="dropzone-sub">{colorCardMode ? '只取第一张 · 粘贴前请先点一下本区域' : '支持多选 · 粘贴前请先点一下本区域'}</p>
               <label className="btn btn-secondary dropzone-btn">
-                {colorCardMode ? '选择正面图' : fabricCloseupMode ? '选择局部图' : '选择多张图片'}
+                {colorCardMode ? '选择正面图' : patternExtractMode ? '选择来源图' : fabricCloseupMode ? '选择局部图' : '选择多张图片'}
                 <input
                   type="file"
                   accept="image/*"
@@ -1547,6 +1581,8 @@ export default function App() {
               <p className="target-count">
                 {colorCardMode
                   ? `已展开 ${jobs.length} 个生成任务（${colorCardCount} 个色号 × 正背面；${colorCardBackSource ? '背面使用参考图' : '背面由模型生成'}）`
+                  : patternExtractMode
+                    ? `已添加 ${jobs.length} 张花色来源图`
                   : `已添加 ${jobs.length} 张`}
               </p>
             ) : null}
@@ -1616,8 +1652,8 @@ export default function App() {
 
         <section className="step-card step-card-action">
             <div className="step-card-head">
-              <span className="step-badge step-badge-accent">{colorCardMode || separatesDualMode ? '第 4 步' : colorChangeMode ? '第 2 步' : '第 3 步'}</span>
-              <h2>{colorCardMode ? '按色卡批量生成正面和背面' : '生成同一套衣服的多张图'}</h2>
+              <span className="step-badge step-badge-accent">{colorCardMode || separatesDualMode ? '第 4 步' : colorChangeMode || patternExtractMode ? '第 2 步' : '第 3 步'}</span>
+              <h2>{colorCardMode ? '按色卡批量生成正面和背面' : patternExtractMode ? '生成无缝印花图' : '生成同一套衣服的多张图'}</h2>
             </div>
 
             <div className="action-row">
@@ -1648,7 +1684,7 @@ export default function App() {
                 disabled={isRunning || jobs.length === 0}
                 onClick={clearJobs}
               >
-                {colorCardMode ? '清空全部色卡任务' : '清空全部目标图'}
+                {colorCardMode ? '清空全部色卡任务' : patternExtractMode ? '清空全部来源图' : '清空全部目标图'}
               </button>
             </div>
 
@@ -1662,13 +1698,15 @@ export default function App() {
                       ? '请先上传上衣参考图和下装参考图'
                     : wearMode && !wearModeRefSource
                     ? '请先上传模特参考图'
-                    : !wearMode && !colorChangeMode && !separatesDualMode && !fabricSource
+                    : !patternExtractMode && !wearMode && !colorChangeMode && !separatesDualMode && !fabricSource
                       ? '请先完成第 1 步'
                       : jobs.length === 0
                         ? colorCardMode
                           ? '请上传正面模特参考图'
                           : wearMode
                           ? '请上传商品图'
+                          : patternExtractMode
+                          ? '请上传花色来源图'
                           : '请上传要换的图'
                         : '请完成上述步骤'}
               </p>
@@ -1701,7 +1739,7 @@ export default function App() {
                       </span>
                       <span className={`status status-${job.status}`}>{STATUS_LABEL[job.status]}</span>
                     </div>
-                    {!fabricCloseupMode && !colorCardMode && !standardFrontMode && !standardBackMode ? (
+                    {!patternExtractMode && !fabricCloseupMode && !colorCardMode && !standardFrontMode && !standardBackMode ? (
                       <label className="job-back-toggle">
                         <input
                           type="checkbox"
@@ -1712,15 +1750,17 @@ export default function App() {
                         背面图（禁止翻正面）
                       </label>
                     ) : null}
-                    <label className="job-back-toggle">
-                      <input
-                        type="checkbox"
-                        checked={fabricCloseupMode || job.isStrictFraming === true}
-                        disabled={isRunning || fabricCloseupMode}
-                        onChange={(e) => updateJob(job.id, { isStrictFraming: e.target.checked })}
-                      />
-                      {fabricCloseupMode ? '局部布样（自动锁构图）' : '局部/特写（严格锁构图）'}
-                    </label>
+                    {!patternExtractMode ? (
+                      <label className="job-back-toggle">
+                        <input
+                          type="checkbox"
+                          checked={fabricCloseupMode || job.isStrictFraming === true}
+                          disabled={isRunning || fabricCloseupMode}
+                          onChange={(e) => updateJob(job.id, { isStrictFraming: e.target.checked })}
+                        />
+                        {fabricCloseupMode ? '局部布样（自动锁构图）' : '局部/特写（严格锁构图）'}
+                      </label>
+                    ) : null}
                     <div className="job-images">
                       <figure>
                         <button

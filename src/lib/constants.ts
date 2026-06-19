@@ -85,6 +85,30 @@ export const PROMPT_SOLID_FABRIC_EDIT = `SOLID FABRIC MODE — the SECOND image 
 - Replace ALL garment cloth in the FIRST image with that exact solid color field; remove every print from the FIRST image cloth.
 - Still obey GARMENT STRUCTURE LOCK, FIT LOCK, and FRAMING LOCK. Non-fabric pixels stay unchanged.`
 
+/** 局部布样模式 — 布料特写/旋转/褶皱模板，只换表面花色，不生成衣服 */
+export const PROMPT_FABRIC_CLOSEUP_MODE = `FABRIC CLOSE-UP MODE — textile surface replacement only (mandatory):
+- Image 1 is the new textile appearance source. Read only cloth color, print, motif scale, weave, and material feel.
+- Image 2 is a fabric close-up / swatch crop template, NOT a garment product photo. It defines the exact crop, rotation, folds, wrinkle flow, lighting, perspective, and cloth surface geometry.
+- Replace the visible fabric surface in Image 2 with Image 1's textile appearance.
+- Preserve Image 2's composition exactly: same crop, same zoom, same rotation angle, same swirl/fold layout, same shadows and highlights, same visible boundaries.
+- Forbidden: generating a shirt, dress, pants, model, body, hanger, mannequin, product layout, collar, sleeve, hem, buttons, accessories, or background scene.
+- Forbidden: outpainting, zooming out, completing a garment, straightening the fabric, changing the fold structure, or importing garment shape from Image 1.
+- If Image 1 is solid/tonal, apply its exact color and subtle texture to the fabric surface while preserving Image 2 folds and light.
+
+中文要求：这是布料局部特写换花，不是衣服商品图换布。只把图片1的颜色/花纹/纹理换到图片2已有布面上；图片2的裁切、旋转角度、褶皱漩涡、光影和透视必须保持。严禁生成模特、上衣、裙子、裤子、领口、袖子、吊牌、配饰或完整商品图。`
+
+/** 局部布样模式 — 编辑接口（第一张=局部模板，第二张=新布料） */
+export const PROMPT_FABRIC_CLOSEUP_MODE_EDIT = `FABRIC CLOSE-UP MODE — textile surface replacement only (mandatory):
+- FIRST image is a fabric close-up / swatch crop template, NOT a garment product photo. It defines the exact crop, rotation, folds, wrinkle flow, lighting, perspective, and cloth surface geometry.
+- SECOND image is the new textile appearance source. Read only cloth color, print, motif scale, weave, and material feel.
+- Replace the visible fabric surface in the FIRST image with the SECOND image's textile appearance.
+- Preserve the FIRST image composition exactly: same crop, same zoom, same rotation angle, same swirl/fold layout, same shadows and highlights, same visible boundaries.
+- Forbidden: generating a shirt, dress, pants, model, body, hanger, mannequin, product layout, collar, sleeve, hem, buttons, accessories, or background scene.
+- Forbidden: outpainting, zooming out, completing a garment, straightening the fabric, changing the fold structure, or importing garment shape from the SECOND image.
+- If the SECOND image is solid/tonal, apply its exact color and subtle texture to the FIRST image fabric surface while preserving the FIRST image folds and light.
+
+中文要求：这是布料局部特写换花，不是衣服商品图换布。只把图片2的颜色/花纹/纹理换到图片1已有布面上；图片1的裁切、旋转角度、褶皱漩涡、光影和透视必须保持。严禁生成模特、上衣、裙子、裤子、领口、袖子、吊牌、配饰或完整商品图。`
+
 /** 裙子模式 — 只换裙子，上衣保持不变 */
 export const PROMPT_SKIRT_ONLY = `SKIRT ONLY MODE — replace ONLY the skirt/lower garment, keep the top unchanged (mandatory):
 - Replace ONLY the skirt or lower garment in image 2 with the textile from image 1.
@@ -386,6 +410,8 @@ export const STORAGE_KEY_SKIRT_ONLY = 'clothing_tool_skirt_only'
 export const STORAGE_KEY_SEPARATES_MODE = 'clothing_tool_separates_mode'
 /** 上下装双参考模式：上衣参考、下装参考分别上传 */
 export const STORAGE_KEY_SEPARATES_DUAL_MODE = 'clothing_tool_separates_dual_mode'
+/** 局部布样模式：布料特写/旋转/褶皱模板 */
+export const STORAGE_KEY_FABRIC_CLOSEUP_MODE = 'clothing_tool_fabric_closeup_mode'
 /** 标准换布：正面 / 背面视角 */
 export const STORAGE_KEY_STANDARD_VIEW = 'clothing_tool_standard_view'
 /** 一键换色模式：用户指定颜色替换衣服颜色 */

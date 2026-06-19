@@ -22,6 +22,8 @@ import {
   PROMPT_SEPARATES_MODE_EDIT,
   PROMPT_SEPARATES_DUAL_MODE,
   PROMPT_SEPARATES_DUAL_MODE_EDIT,
+  PROMPT_FABRIC_CLOSEUP_MODE,
+  PROMPT_FABRIC_CLOSEUP_MODE_EDIT,
   PROMPT_SOLID_FABRIC,
   PROMPT_SOLID_FABRIC_EDIT,
   PROMPT_SKIRT_ONLY,
@@ -37,6 +39,7 @@ import {
   STORAGE_KEY_COLOR_CARD_COUNT,
   STORAGE_KEY_COLOR_CARD_MODE,
   STORAGE_KEY_FOLLOW_TARGET_ASPECT,
+  STORAGE_KEY_FABRIC_CLOSEUP_MODE,
   STORAGE_KEY_PROMPT,
   STORAGE_KEY_SIZE,
   STORAGE_KEY_SOLID_FABRIC,
@@ -65,8 +68,8 @@ type PasteTarget = 'fabric' | 'fabricTop' | 'fabricBottom' | 'target' | 'colorCa
 /** 主工作模式：换布（默认）、一键换色、上身展示、色卡 */
 type WorkMode = 'fabric' | 'colorChange' | 'wear' | 'colorCard'
 type ColorCardView = 'front' | 'back'
-/** 换布变体：标准正面 / 标准背面 / 裙子 / 上下装分离 / 上下装双参考 */
-type FabricVariant = 'standardFront' | 'standardBack' | 'skirtOnly' | 'separates' | 'separatesDual'
+/** 换布变体：标准正面 / 标准背面 / 裙子 / 上下装分离 / 上下装双参考 / 局部布样 */
+type FabricVariant = 'standardFront' | 'standardBack' | 'skirtOnly' | 'separates' | 'separatesDual' | 'fabricCloseup'
 
 const WORK_MODE_OPTIONS: { id: WorkMode; label: string; hint: string }[] = [
   { id: 'fabric', label: '换布', hint: '布料图替换花纹' },
@@ -85,6 +88,7 @@ const FABRIC_VARIANT_OPTIONS: { id: FabricVariant; label: string; hint: string }
   { id: 'skirtOnly', label: '裙子模式', hint: '只换下装，上衣不变' },
   { id: 'separates', label: '上下装分离', hint: '上衣、下装分别替换' },
   { id: 'separatesDual', label: '双参考', hint: '只取花色，不取版型' },
+  { id: 'fabricCloseup', label: '局部布样', hint: '锁旋转褶皱特写' },
 ]
 
 function loadWorkMode(): WorkMode {
@@ -96,6 +100,7 @@ function loadWorkMode(): WorkMode {
 
 function loadFabricVariant(workMode: WorkMode): FabricVariant {
   if (workMode !== 'fabric') return 'standardFront'
+  if (localStorage.getItem(STORAGE_KEY_FABRIC_CLOSEUP_MODE) === '1') return 'fabricCloseup'
   if (localStorage.getItem(STORAGE_KEY_SEPARATES_DUAL_MODE) === '1') return 'separatesDual'
   if (localStorage.getItem(STORAGE_KEY_SKIRT_ONLY) === '1') return 'skirtOnly'
   if (localStorage.getItem(STORAGE_KEY_SEPARATES_MODE) === '1') return 'separates'
@@ -203,6 +208,7 @@ export default function App() {
   const skirtOnlyMode = inFabricMode && fabricVariant === 'skirtOnly'
   const separatesMode = inFabricMode && fabricVariant === 'separates'
   const separatesDualMode = inFabricMode && fabricVariant === 'separatesDual'
+  const fabricCloseupMode = inFabricMode && fabricVariant === 'fabricCloseup'
   /** 换色模式选中的颜色 (hex) */
   const [selectedColor, setSelectedColor] = useState<string>('#FF6B6B')
   const [protectNeutralAreas, setProtectNeutralAreas] = useState(() => {
@@ -280,6 +286,7 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_SKIRT_ONLY, fabricVariant === 'skirtOnly' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_SEPARATES_MODE, fabricVariant === 'separates' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_SEPARATES_DUAL_MODE, fabricVariant === 'separatesDual' ? '1' : '0')
+    localStorage.setItem(STORAGE_KEY_FABRIC_CLOSEUP_MODE, fabricVariant === 'fabricCloseup' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_STANDARD_VIEW, fabricVariant === 'standardBack' ? 'back' : 'front')
   }, [fabricVariant])
   useEffect(() => {
@@ -503,6 +510,7 @@ export default function App() {
         previewObjectUrl: URL.createObjectURL(file),
         status: 'queued' as const,
         addedSeq: addedSeqRef.current++,
+        isStrictFraming: fabricCloseupMode ? true : undefined,
       }))
       setJobs((prev) => [...prev, ...newJobs])
       for (const job of newJobs) {
@@ -513,7 +521,7 @@ export default function App() {
         })
       }
     },
-    [colorCardCount, colorCardMode, replaceColorCardJobs, updateJob],
+    [colorCardCount, colorCardMode, fabricCloseupMode, replaceColorCardJobs, updateJob],
   )
 
   const handlePaste = useCallback(
@@ -611,7 +619,7 @@ export default function App() {
       return
     }
     if (!colorChangeMode && !wearMode && !separatesDualMode && !fabricSource) {
-      alert(colorCardMode ? '请先上传「编号色卡图」' : '请先上传「布料图」或「商品图」')
+      alert(colorCardMode ? '请先上传「编号色卡图」' : fabricCloseupMode ? '请先上传「新布料图」' : '请先上传「布料图」或「商品图」')
       return
     }
     if (wearMode && !wearModeRefSource) {
@@ -619,7 +627,7 @@ export default function App() {
       return
     }
     if (jobs.length === 0) {
-      alert(colorCardMode ? '请上传一张「正面模特参考图」' : wearMode ? '请至少上传一张「商品图」' : '请至少上传一张「要换的图」')
+      alert(colorCardMode ? '请上传一张「正面模特参考图」' : wearMode ? '请至少上传一张「商品图」' : fabricCloseupMode ? '请至少上传一张「局部布样模板」' : '请至少上传一张「要换的图」')
       return
     }
 
@@ -639,6 +647,7 @@ export default function App() {
     const skirtOnlyPrompt = useEditsApi ? PROMPT_SKIRT_ONLY_EDIT : PROMPT_SKIRT_ONLY
     const separatesPrompt = useEditsApi ? PROMPT_SEPARATES_MODE_EDIT : PROMPT_SEPARATES_MODE
     const separatesDualPrompt = useEditsApi ? PROMPT_SEPARATES_DUAL_MODE_EDIT : PROMPT_SEPARATES_DUAL_MODE
+    const fabricCloseupPrompt = useEditsApi ? PROMPT_FABRIC_CLOSEUP_MODE_EDIT : PROMPT_FABRIC_CLOSEUP_MODE
 
     const fullPrompt = [
       colorCardMode
@@ -649,11 +658,13 @@ export default function App() {
             ? (useEditsApi ? PROMPT_WEAR_MODE_EDIT : PROMPT_WEAR_MODE)
             : separatesDualMode
               ? separatesDualPrompt
-              : buildPrompt(queue.length > 1),
-      wearMode || colorCardMode || separatesDualMode || colorChangeMode ? '' : DEFAULT_PROMPT_SUFFIX,
-      !colorChangeMode && !separatesDualMode && isSolidFabric ? solidPrompt : '',
-      !colorChangeMode && skirtOnlyMode ? skirtOnlyPrompt : '',
-      !colorChangeMode && separatesMode ? separatesPrompt : '',
+              : fabricCloseupMode
+                ? fabricCloseupPrompt
+                : buildPrompt(queue.length > 1),
+      wearMode || colorCardMode || separatesDualMode || fabricCloseupMode || colorChangeMode ? '' : DEFAULT_PROMPT_SUFFIX,
+      !colorChangeMode && !separatesDualMode && !fabricCloseupMode && isSolidFabric ? solidPrompt : '',
+      !colorChangeMode && !fabricCloseupMode && skirtOnlyMode ? skirtOnlyPrompt : '',
+      !colorChangeMode && !fabricCloseupMode && separatesMode ? separatesPrompt : '',
       promptExtra.trim(),
     ]
       .filter(Boolean)
@@ -705,7 +716,7 @@ export default function App() {
       try {
         let jobAspect = aspectRatio
         let jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
-        if (followTargetAspect) {
+        if (followTargetAspect || fabricCloseupMode) {
           const { width, height } = await getImageDimensions(job.file)
           jobAspect = closestAspectLabel(width, height)
           jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
@@ -713,9 +724,9 @@ export default function App() {
 
         const jobPromptSuffix = buildPerJobPromptSuffix({
           warnings: job.warnings ?? [],
-          isFrontView: standardFrontMode,
-          isBackView: colorCardMode ? false : standardBackMode || (!standardFrontMode && job.isBackView === true),
-          isStrictFraming: job.isStrictFraming === true,
+          isFrontView: !fabricCloseupMode && standardFrontMode,
+          isBackView: fabricCloseupMode ? false : colorCardMode ? false : standardBackMode || (!standardFrontMode && job.isBackView === true),
+          isStrictFraming: fabricCloseupMode || job.isStrictFraming === true,
           forEdits: useEditsApi,
         })
         const colorCardPrompt =
@@ -734,7 +745,7 @@ export default function App() {
             : ''
         const prompt = [
           colorCardPrompt || fullPrompt,
-          PROMPT_GLOBAL_CLEAN_CRAFT_LOCK,
+          fabricCloseupMode ? '' : PROMPT_GLOBAL_CLEAN_CRAFT_LOCK,
           jobPromptSuffix,
           colorCardMode ? promptExtra.trim() : '',
         ]
@@ -830,6 +841,7 @@ export default function App() {
     colorCardMode,
     encodeImage,
     fabricBottomSource,
+    fabricCloseupMode,
     fabricSource,
     fabricTopSource,
     followTargetAspect,
@@ -1130,6 +1142,15 @@ export default function App() {
           </div>
         )}
 
+        {workMode === 'fabric' && fabricCloseupMode && (
+          <div className="mode-panel-note" style={{ marginTop: 12, padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+            <p style={{ margin: 0, fontSize: 13, color: '#166534', lineHeight: 1.5 }}>
+              <strong> 局部布样提示：</strong>
+              适合旋转、褶皱、满框布料特写。第 2 步只作为布面构图模板，会自动锁定原裁切和原比例，严禁补成完整衣服或模特图。
+            </p>
+          </div>
+        )}
+
         {colorChangeMode && (
           <div className="mode-panel-section mode-panel-sub mode-panel-color">
             <span className="mode-panel-label">目标颜色</span>
@@ -1211,11 +1232,15 @@ export default function App() {
           >
             <div className="step-card-head">
               <span className="step-badge">第 1 步</span>
-              <h2>{colorCardMode ? '上传「编号色卡图」' : '上传「布料图」'}</h2>
+              <h2>{colorCardMode ? '上传「编号色卡图」' : fabricCloseupMode ? '上传「新布料图」' : '上传「布料图」'}</h2>
             </div>
             {colorCardMode ? (
               <p className="step-desc">
                 上传带编号的格子色卡。生成时会自动读取每个编号对应的格子配色。
+              </p>
+            ) : fabricCloseupMode ? (
+              <p className="step-desc">
+                提供要替换进去的颜色、花纹、格纹比例和布料肌理；不取这张图里的衣服版型。
               </p>
             ) : (
               <label className="job-back-toggle fabric-solid-toggle">
@@ -1236,9 +1261,9 @@ export default function App() {
                     type="button"
                     className="preview-image-btn"
                     title="点击查看大图"
-                    onClick={() => openImagePreview(fabricSource.previewObjectUrl, colorCardMode ? '编号色卡图' : '布料图')}
+                    onClick={() => openImagePreview(fabricSource.previewObjectUrl, colorCardMode ? '编号色卡图' : fabricCloseupMode ? '新布料图' : '布料图')}
                   >
-                    <img src={fabricSource.previewObjectUrl} alt={colorCardMode ? '编号色卡图预览' : '布料图预览'} />
+                    <img src={fabricSource.previewObjectUrl} alt={colorCardMode ? '编号色卡图预览' : fabricCloseupMode ? '新布料图预览' : '布料图预览'} />
                   </button>
                 ) : (
                   <span className="preview-placeholder">点击右侧按钮或粘贴图片</span>
@@ -1466,7 +1491,7 @@ export default function App() {
           >
             <div className="step-card-head">
               <span className="step-badge">{colorChangeMode ? '最后一步' : separatesDualMode ? '第 3 步' : '第 2 步'}</span>
-              <h2>{colorCardMode ? '上传「正面模特参考图」' : wearMode ? '上传「商品图」' : '上传「要换的图」'}</h2>
+              <h2>{colorCardMode ? '上传「正面模特参考图」' : wearMode ? '上传「商品图」' : fabricCloseupMode ? '上传「局部布样模板」' : '上传「要换的图」'}</h2>
             </div>
             <p className="step-desc">
               {colorCardMode ? (
@@ -1476,6 +1501,10 @@ export default function App() {
               ) : wearMode ? (
                 <>
                   请传<strong>平铺/挂拍商品图</strong>（要严格保留的衣服），会保留商品的版型、颜色、花色、图案和细节。
+                </>
+              ) : fabricCloseupMode ? (
+                <>
+                  请传<strong>布料局部特写</strong>（旋转/褶皱/满框布样）。系统会保留这张图的裁切、角度、褶皱和光影，只换表面花色。
                 </>
               ) : (
                 <>
@@ -1500,7 +1529,7 @@ export default function App() {
               <p className="dropzone-title">拖入图片，或点击选择</p>
               <p className="dropzone-sub">{colorCardMode ? '只取第一张 · 粘贴前请先点一下本区域' : '支持多选 · 粘贴前请先点一下本区域'}</p>
               <label className="btn btn-secondary dropzone-btn">
-                {colorCardMode ? '选择正面图' : '选择多张图片'}
+                {colorCardMode ? '选择正面图' : fabricCloseupMode ? '选择局部图' : '选择多张图片'}
                 <input
                   type="file"
                   accept="image/*"
@@ -1672,7 +1701,7 @@ export default function App() {
                       </span>
                       <span className={`status status-${job.status}`}>{STATUS_LABEL[job.status]}</span>
                     </div>
-                    {!colorCardMode && !standardFrontMode && !standardBackMode ? (
+                    {!fabricCloseupMode && !colorCardMode && !standardFrontMode && !standardBackMode ? (
                       <label className="job-back-toggle">
                         <input
                           type="checkbox"
@@ -1686,11 +1715,11 @@ export default function App() {
                     <label className="job-back-toggle">
                       <input
                         type="checkbox"
-                        checked={job.isStrictFraming === true}
-                        disabled={isRunning}
+                        checked={fabricCloseupMode || job.isStrictFraming === true}
+                        disabled={isRunning || fabricCloseupMode}
                         onChange={(e) => updateJob(job.id, { isStrictFraming: e.target.checked })}
                       />
-                      局部/特写（严格锁构图）
+                      {fabricCloseupMode ? '局部布样（自动锁构图）' : '局部/特写（严格锁构图）'}
                     </label>
                     <div className="job-images">
                       <figure>

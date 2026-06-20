@@ -1,4 +1,5 @@
 import { blobToDataURL } from '../lib/files'
+import { extractErrorMessage } from '../lib/extractErrorMessage'
 
 export interface GenerationsBody {
   model: string
@@ -6,7 +7,7 @@ export interface GenerationsBody {
   size: string
   aspect_ratio: string
   image: string[]
-  /** 与 OpenAI Image API 对齐；部分模型（如官方文档称 gpt-image-2）可能不支持 transparent */
+  /** 与 OpenAI Image API 对齐；部分模型（如 gpt-image-2）可能不支持 transparent */
   background?: 'transparent' | 'opaque' | 'auto'
   /** 透明底需 png/webp；与 background 一并由网关决定是否接受 */
   output_format?: 'png' | 'jpeg' | 'webp'
@@ -17,12 +18,6 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string | unde
     const v = obj[k]
     if (typeof v === 'string' && v.length > 0) return v
   }
-}
-
-function extractErrorMessage(json: unknown): string | undefined {
-  if (!json || typeof json !== 'object') return
-  const o = json as Record<string, unknown>
-  return pickString(o, ['message', 'error', 'msg', 'detail'])
 }
 
 /**

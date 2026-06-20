@@ -1,21 +1,12 @@
 import { parseGenerationImage } from './imagesGenerations'
+import { extractErrorMessage } from '../lib/extractErrorMessage'
 
 export interface EditsBody {
   model: string
   prompt: string
   size: string
-  aspect_ratio: string
   /** 第一张为待编辑目标图，第二张为布料参考 */
   images: File[]
-}
-
-function extractErrorMessage(json: unknown): string | undefined {
-  if (!json || typeof json !== 'object') return
-  const o = json as Record<string, unknown>
-  for (const k of ['message', 'error', 'msg', 'detail']) {
-    const v = o[k]
-    if (typeof v === 'string' && v.length > 0) return v
-  }
 }
 
 export async function postImagesEdits(
@@ -31,9 +22,8 @@ export async function postImagesEdits(
   form.append('model', body.model)
   form.append('prompt', body.prompt)
   form.append('size', body.size)
-  form.append('aspect_ratio', body.aspect_ratio)
   for (const file of body.images) {
-    form.append('image[]', file, file.name)
+    form.append('image', file, file.name)
   }
 
   const res = await fetch(url, {

@@ -16,7 +16,7 @@ npm run dev
 
 ## 跨域（仅开发者）
 
-本地若报 CORS，在「高级选项」里把接口地址改为 `http://localhost:5173/t8proxy`（端口以 Vite 输出为准）。
+默认接口地址为 `https://ai.t8star.org`。本地调试若需要绕过 CORS，可临时在「高级选项」里改为 `/t8proxy`。
 
 ## 安全
 

@@ -4,11 +4,11 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  /** 本地开发绕过浏览器 CORS：将界面里 API Base 设为 `http://localhost:5173/t8proxy`（端口以终端为准） */
+  /** 本地开发备用代理：如需绕过浏览器 CORS，可临时将接口地址设为 `/t8proxy` */
   server: {
     proxy: {
       '/t8proxy': {
-        target: 'https://ai.t8star.cn',
+        target: 'https://ai.t8star.org',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/t8proxy/, ''),
       },

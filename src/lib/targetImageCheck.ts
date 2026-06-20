@@ -164,17 +164,17 @@ export async function checkTargetImage(file: File): Promise<TargetImageCheckResu
   return { warnings }
 }
 
-const PROMPT_BACK_VIEW_LOCK = `目标图是背面，结果也必须保持背面。
-只显示衣服背面结构，不要翻成正面或镜像出正面。`
+const PROMPT_BACK_VIEW_LOCK = `The target image is a back view, and the result must stay a back view.
+Show only the back garment structure. Do not flip it to the front or mirror front details as the back.`
 
-const PROMPT_FRONT_VIEW_LOCK = `目标图是正面，结果也必须保持正面。
-只显示衣服正面结构，不要翻成背面或把背面结构当正面。`
+const PROMPT_FRONT_VIEW_LOCK = `The target image is a front view, and the result must stay a front view.
+Show only the front garment structure. Do not flip it to the back or treat back structure as the front.`
 
-const PROMPT_STRICT_FRAMING = `保持目标图原裁切、比例、主体大小和可见范围。
-不要扩图、补全身体或衣服，不要新增鞋、包、首饰、道具或背景元素。`
+const PROMPT_STRICT_FRAMING = `Keep the target image's original crop, aspect ratio, subject size, and visible area.
+Do not expand the frame, complete missing body or garment parts, or add shoes, bags, jewelry, props, or background elements.`
 
-const PROMPT_STRICT_FIT = `保持目标图原有衣服外轮廓、腰宽、松量和垂坠。
-不要收腰、修身、改宽松度或美化版型，只替换布面。`
+const PROMPT_STRICT_FIT = `Keep the target garment's original outer silhouette, waist width, ease, and drape.
+Do not slim the waist, tighten the fit, change looseness, or beautify the silhouette. Replace only the fabric surface.`
 
 export interface BuildPerJobPromptOptions {
   warnings: TargetImageWarning[]
@@ -185,7 +185,7 @@ export interface BuildPerJobPromptOptions {
   forEdits?: boolean
 }
 
-/** 按检测结果为单张任务追加简短中文约束 */
+/** Append short per-job constraints based on image checks */
 export function buildPerJobPromptSuffix(
   warningsOrOptions: TargetImageWarning[] | BuildPerJobPromptOptions,
   isBackViewLegacy = false,
@@ -207,24 +207,24 @@ export function buildPerJobPromptSuffix(
     parts.push(PROMPT_STRICT_FIT)
   }
 
-  const targetLabel = forEdits ? '第一张目标图' : '目标图'
-  const fabricLabel = forEdits ? '第二张参考图' : '参考图'
+  const targetLabel = forEdits ? 'the first target image' : 'the target image'
+  const fabricLabel = forEdits ? 'the second reference image' : 'the reference image'
 
   if (warnings.some((w) => w.code === 'possible_swatch')) {
     parts.push(
-      `${targetLabel}像布样或局部图；只把${fabricLabel}布面换到已有衣服/布面区域，不要生成新衣服、模特或新布局。`,
+      `${targetLabel} looks like a fabric swatch or close-up. Apply only the fabric surface from ${fabricLabel} to the existing garment/fabric area. Do not generate a new garment, model, or layout.`,
     )
   }
   if (warnings.some((w) => w.code === 'partial_crop' || w.code === 'tight_crop')) {
     parts.push(
-      `保持${targetLabel}原裁切和构图，不要扩图、补全局部衣服或新增鞋包配饰。`,
+      `Keep the original crop and composition of ${targetLabel}. Do not expand the frame, complete partial garment areas, or add shoes, bags, or accessories.`,
     )
     parts.push(
-      `保持${targetLabel}原版型、松量、腰宽和外轮廓，不要收腰、修身或美化轮廓。`,
+      `Keep the original fit, ease, waist width, and outer silhouette of ${targetLabel}. Do not slim, tighten, or beautify the silhouette.`,
     )
   }
   if (warnings.some((w) => w.code === 'low_resolution')) {
-    parts.push(`保持${targetLabel}清晰自然，不要凭空增加细节。`)
+    parts.push(`Keep ${targetLabel} clear and natural. Do not invent extra detail.`)
   }
   return parts.join('\n\n')
 }

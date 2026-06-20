@@ -68,14 +68,21 @@ type ColorCardView = 'front' | 'back'
 /** 换布变体：标准正面 / 标准背面 / 裙子 / 仅换上装 / 上下装双参考 / 局部布样 */
 type FabricVariant = 'standardFront' | 'standardBack' | 'skirtOnly' | 'separates' | 'separatesDual' | 'fabricCloseup'
 
+/** 设为 true 可在界面显示「换色」模式 */
+const COLOR_CHANGE_MODE_ENABLED = false
+
 const WORK_MODE_OPTIONS: { id: WorkMode; label: string; hint: string }[] = [
   { id: 'fabric', label: '换布', hint: '布料图替换花纹' },
   { id: 'colorChange', label: '换色', hint: '整件衣服纯色' },
   { id: 'wear', label: '上身', hint: '保商品版型花色' },
-  { id: 'modelFlatten', label: '展平', hint: '模特衣服转平铺图' },
+  { id: 'modelFlatten', label: '提平面图', hint: '模特衣服转平铺图' },
   { id: 'patternExtract', label: '提花色', hint: '成衣图转无缝印花' },
   { id: 'colorCard', label: '色卡', hint: '编号色卡批量正背面' },
 ]
+
+const VISIBLE_WORK_MODE_OPTIONS = WORK_MODE_OPTIONS.filter(
+  (opt) => COLOR_CHANGE_MODE_ENABLED || opt.id !== 'colorChange',
+)
 
 const DEFAULT_COLOR_CARD_COUNT = 18
 const MIN_COLOR_CARD_COUNT = 0
@@ -95,7 +102,7 @@ function loadWorkMode(): WorkMode {
   if (localStorage.getItem(STORAGE_KEY_PATTERN_EXTRACT_MODE) === '1') return 'patternExtract'
   if (localStorage.getItem(STORAGE_KEY_MODEL_FLATTEN_MODE) === '1') return 'modelFlatten'
   if (localStorage.getItem(STORAGE_KEY_WEAR_MODE) === '1') return 'wear'
-  if (localStorage.getItem(STORAGE_KEY_COLOR_CHANGE) === '1') return 'colorChange'
+  if (COLOR_CHANGE_MODE_ENABLED && localStorage.getItem(STORAGE_KEY_COLOR_CHANGE) === '1') return 'colorChange'
   return 'fabric'
 }
 
@@ -212,8 +219,8 @@ async function createLabeledReferenceFile(file: File, role: 'top' | 'bottom'): P
 
   const isTop = role === 'top'
   const color = isTop ? '#1d4ed8' : '#15803d'
-  const title = isTop ? '图一 · 上衣专用' : '图二 · 下装专用'
-  const corner = isTop ? '上衣' : '下装'
+  const title = isTop ? 'Image 1 · Top only' : 'Image 2 · Bottom only'
+  const corner = isTop ? 'Top' : 'Bottom'
 
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -339,6 +346,12 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY_PATTERN_EXTRACT_MODE, workMode === 'patternExtract' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_COLOR_CARD_MODE, workMode === 'colorCard' ? '1' : '0')
   }, [workMode])
+
+  useEffect(() => {
+    if (!COLOR_CHANGE_MODE_ENABLED && workMode === 'colorChange') {
+      setWorkMode('fabric')
+    }
+  }, [workMode, setWorkMode])
 
   const selectWorkMode = useCallback((mode: WorkMode) => {
     setWorkMode(mode)
@@ -1024,7 +1037,7 @@ export default function App() {
         <div className="mode-panel-section">
           <span className="mode-panel-label">工作模式</span>
           <div className="segment-group" role="radiogroup" aria-label="工作模式">
-            {WORK_MODE_OPTIONS.map((opt) => (
+            {VISIBLE_WORK_MODE_OPTIONS.map((opt) => (
               <button
                 key={opt.id}
                 type="button"

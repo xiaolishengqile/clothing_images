@@ -170,6 +170,14 @@ Show only the back garment structure. Do not flip it to the front or mirror fron
 const PROMPT_FRONT_VIEW_LOCK = `The target image is a front view, and the result must stay a front view.
 Show only the front garment structure. Do not flip it to the back or treat back structure as the front.`
 
+const PROMPT_WEAR_BACK_VIEW_LOCK = `The second image (product garment) is a back view. Dress the model wearing the exact back design from the second image.
+The result must stay a back view. Copy the back neckline, back opening, seams, print placement, and all back details 1:1 from the second image.
+Do not copy, blend, or reference any clothing from the first image's original outfit. Do not flip to front view or mirror front details as the back.`
+
+const PROMPT_WEAR_FRONT_VIEW_LOCK = `The second image (product garment) is a front view. Dress the model wearing the exact front design from the second image.
+The result must stay a front view. Copy all front garment details 1:1 from the second image.
+Do not copy, blend, or reference any clothing from the first image's original outfit. Do not flip to back view.`
+
 const PROMPT_STRICT_FRAMING = `Keep the target image's original crop, aspect ratio, subject size, and visible area.
 Do not expand the frame, complete missing body or garment parts, or add shoes, bags, jewelry, props, or background elements.`
 
@@ -183,6 +191,8 @@ export interface BuildPerJobPromptOptions {
   isStrictFraming?: boolean
   /** 编辑接口：第一张=目标，第二张=布 */
   forEdits?: boolean
+  /** 上身模式：第一张=模特，第二张=商品 */
+  wearMode?: boolean
 }
 
 /** Append short per-job constraints based on image checks */
@@ -193,14 +203,14 @@ export function buildPerJobPromptSuffix(
   const opts: BuildPerJobPromptOptions = Array.isArray(warningsOrOptions)
     ? { warnings: warningsOrOptions, isBackView: isBackViewLegacy }
     : warningsOrOptions
-  const { warnings, isFrontView = false, isBackView = false, isStrictFraming = false, forEdits = false } = opts
+  const { warnings, isFrontView = false, isBackView = false, isStrictFraming = false, forEdits = false, wearMode = false } = opts
 
   const parts: string[] = []
   if (isFrontView) {
-    parts.push(PROMPT_FRONT_VIEW_LOCK)
+    parts.push(wearMode ? PROMPT_WEAR_FRONT_VIEW_LOCK : PROMPT_FRONT_VIEW_LOCK)
   }
   if (isBackView) {
-    parts.push(PROMPT_BACK_VIEW_LOCK)
+    parts.push(wearMode ? PROMPT_WEAR_BACK_VIEW_LOCK : PROMPT_BACK_VIEW_LOCK)
   }
   if (isStrictFraming) {
     parts.push(PROMPT_STRICT_FRAMING)

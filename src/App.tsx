@@ -696,6 +696,7 @@ export default function App() {
           isBackView: patternExtractMode || modelFlattenMode || fabricCloseupMode ? false : colorCardMode ? false : standardBackMode || (!standardFrontMode && job.isBackView === true),
           isStrictFraming: !patternExtractMode && !modelFlattenMode && (fabricCloseupMode || job.isStrictFraming === true),
           forEdits: true,
+          wearMode,
         })
         const colorCardPrompt =
           colorCardMode && job.colorCardNumber
@@ -707,7 +708,7 @@ export default function App() {
             : ''
         const prompt = [
           colorCardPrompt || fullPrompt,
-          inFabricMode ? jobPromptSuffix : '',
+          inFabricMode || wearMode ? jobPromptSuffix : '',
           colorCardMode ? promptExtra.trim() : '',
         ]
           .filter(Boolean)

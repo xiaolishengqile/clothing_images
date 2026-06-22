@@ -152,15 +152,29 @@ ${colorCardViewPrompt(view, 'image 2', hasBackReference)}`
 }
 
 /** Wear mode — generation API (image 1 = product, image 2 = model reference) */
-export const PROMPT_WEAR_MODE = `Image 1 is the product garment. Image 2 is the model reference.
-Put the product from image 1 onto the model in image 2. Follow image 1 for color, print, and fit.
-Keep the print clean, flowing, and continuous. Keep the person, background, and composition unchanged.
+export const PROMPT_WEAR_MODE = `Image 1 is the product garment — the ONLY source for all clothing details.
+Image 2 is the model reference — use it ONLY for the person, body, pose, hair, background, lighting, and composition.
+
+Put the garment from image 1 onto the model in image 2.
+Copy image 1's garment 1:1: silhouette, fit, color, print/pattern, material, neckline, collar, sleeves, hem, length, buttons, pockets, seams, and every visible detail.
+If image 1 shows the back of the garment, reproduce that exact back structure — do not flip to front or borrow clothing from image 2.
+If image 1 shows the front, reproduce that exact front structure — do not flip to back.
+
+Completely replace and ignore image 2's original clothing. Do not copy, blend, or reference the model's existing outfit style, color, print, or garment structure in any way.
+Keep the print clean, flowing, and continuous on the worn garment. Keep the person, pose, background, and composition unchanged.
 ${PROMPT_PRINT_AESTHETIC}`
 
 /** Wear mode — edit API (first image = model reference, second image = product) */
-export const PROMPT_WEAR_MODE_EDIT = `The first image is the model reference. The second image is the product garment.
-Put the product from the second image onto the model in the first image. Follow the second image for color, print, and fit.
-Keep the print clean, flowing, and continuous. Keep the person, background, and composition unchanged.
+export const PROMPT_WEAR_MODE_EDIT = `The first image is the model reference — use it ONLY for the person, body, pose, hair, skin tone, background, lighting, and composition.
+The second image is the product garment — the ONLY source for all clothing details.
+
+Dress the model from the first image in the garment from the second image.
+Copy the second image's garment 1:1: silhouette, fit, color, print/pattern, material, neckline, collar, sleeves, hem, length, buttons, pockets, seams, and every visible detail.
+If the second image shows the back of the garment, reproduce that exact back structure in the result — do not flip to front or borrow the first image's outfit.
+If the second image shows the front, reproduce that exact front structure — do not flip to back.
+
+Completely replace and ignore the first image's original clothing. Do not copy, blend, or reference the model's existing outfit style, color, print, or garment structure in any way.
+Keep the print clean, flowing, and continuous on the worn garment. Keep the person, pose, background, and composition unchanged.
 ${PROMPT_PRINT_AESTHETIC}`
 
 /** Flatten mode — turn worn clothes into a flat-lay product photo (single image, no reference) */

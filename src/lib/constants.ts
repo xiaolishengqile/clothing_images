@@ -164,6 +164,21 @@ Completely replace and ignore image 2's original clothing. Do not copy, blend, o
 Keep the print clean, flowing, and continuous on the worn garment. Keep the person, pose, background, and composition unchanged.
 ${PROMPT_PRINT_AESTHETIC}`
 
+/** Combo mode — edit API (first = model, second = scene, third = garment) */
+export const PROMPT_COMBO_MODE_EDIT = `The first image is the model reference — use it for the person, body, pose, hair, and skin tone.
+The second image is the scene reference — use it for the background, environment, lighting mood, and overall setting.
+The third image is the product garment — the ONLY source for all clothing details.
+
+Composite a fashion photo: dress the model from the first image in the garment from the third image, and place them in the scene from the second image.
+Copy the third image's garment 1:1: silhouette, fit, color, print/pattern, material, neckline, collar, sleeves, hem, length, buttons, pockets, seams, and every visible detail.
+If the third image shows the back of the garment, reproduce that exact back structure — do not flip to front or borrow clothing from other images.
+If the third image shows the front, reproduce that exact front structure — do not flip to back.
+Use the second image's background and environmental lighting. Adapt the model's lighting naturally to match the scene.
+Completely ignore the original clothing in the first and second images. Do not copy, blend, or reference garment details from the model or scene references.
+Keep the person identity and pose from the first image as much as possible.
+Keep the print clean, flowing, and continuous on the worn garment.
+${PROMPT_PRINT_AESTHETIC}`
+
 /** Wear mode — edit API (first image = model reference, second image = product) */
 export const PROMPT_WEAR_MODE_EDIT = `The first image is the model reference — use it ONLY for the person, body, pose, hair, skin tone, background, lighting, and composition.
 The second image is the product garment — the ONLY source for all clothing details.
@@ -242,6 +257,8 @@ export const STORAGE_KEY_COLOR_CHANGE = 'clothing_tool_color_change'
 export const STORAGE_KEY_COLOR_CHANGE_PROTECT_NEUTRALS = 'clothing_tool_color_change_protect_neutrals'
 /** 上身展示模式：商品平铺图穿到参考图模特身上 */
 export const STORAGE_KEY_WEAR_MODE = 'clothing_tool_wear_mode'
+/** 三图组合模式：模特 × 场景 × 衣服 笛卡尔积批量生成 */
+export const STORAGE_KEY_COMBO_MODE = 'clothing_tool_combo_mode'
 /** 展平模式：模特身上衣服转平铺商品图 */
 export const STORAGE_KEY_MODEL_FLATTEN_MODE = 'clothing_tool_model_flatten_mode'
 /** 提取花色模式：成衣/布面照片转无缝循环印花图 */

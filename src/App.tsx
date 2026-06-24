@@ -4,6 +4,7 @@ import { saveAs } from 'file-saver'
 import { postImagesEdits } from './api/imagesEdits'
 import { usePersistedState } from './hooks/usePersistedState'
 import { useFabricSource } from './hooks/useFabricSource'
+import { useMultiImageSource } from './hooks/useMultiImageSource'
 import {
   ASPECT_OPTIONS,
   buildColorCardPromptForEdits,
@@ -25,6 +26,7 @@ import {
   PROMPT_SKIRT_ONLY_EDIT,
   PROMPT_PATTERN_EXTRACT,
   PROMPT_MODEL_FLATTEN_WITH_REF_EDIT,
+  PROMPT_COMBO_MODE_EDIT,
   PROMPT_WEAR_MODE_EDIT,
   SIZE_OPTIONS,
   SIZE_OPTIONS_2K,
@@ -47,6 +49,7 @@ import {
   STORAGE_KEY_SEPARATES_DUAL_MODE,
   STORAGE_KEY_SEPARATES_MODE,
   STORAGE_KEY_WEAR_MODE,
+  STORAGE_KEY_COMBO_MODE,
 } from './lib/constants'
 import { PRESET_COLORS } from './lib/presetColors'
 import { restoreProtectedLightNeutrals } from './lib/colorProtection'
@@ -61,9 +64,9 @@ import {
 import './App.css'
 
 type JobStatus = 'queued' | 'running' | 'done' | 'error'
-type PasteTarget = 'fabric' | 'fabricTop' | 'fabricBottom' | 'target' | 'colorCardBack'
-/** 主工作模式：换布（默认）、一键换色、上身展示、展平、提取花色、色卡 */
-type WorkMode = 'fabric' | 'colorChange' | 'wear' | 'modelFlatten' | 'patternExtract' | 'colorCard'
+type PasteTarget = 'fabric' | 'fabricTop' | 'fabricBottom' | 'target' | 'colorCardBack' | 'comboModel' | 'comboScene' | 'comboClothing'
+/** 主工作模式：换布（默认）、一键换色、上身展示、展平、提取花色、色卡、三图组合 */
+type WorkMode = 'fabric' | 'colorChange' | 'wear' | 'modelFlatten' | 'patternExtract' | 'colorCard' | 'combo'
 type ColorCardView = 'front' | 'back'
 /** 换布变体：标准正面 / 标准背面 / 裙子 / 仅换上装 / 上下装双参考 / 局部布样 */
 type FabricVariant = 'standardFront' | 'standardBack' | 'skirtOnly' | 'separates' | 'separatesDual' | 'fabricCloseup'
@@ -75,6 +78,7 @@ const WORK_MODE_OPTIONS: { id: WorkMode; label: string; hint: string }[] = [
   { id: 'fabric', label: '换布', hint: '布料图替换花纹' },
   { id: 'colorChange', label: '换色', hint: '整件衣服纯色' },
   { id: 'wear', label: '上身', hint: '保商品版型花色' },
+  { id: 'combo', label: '三图组合', hint: '模特×场景×衣服' },
   { id: 'modelFlatten', label: '提平面图', hint: '模特衣服转平铺图' },
   { id: 'patternExtract', label: '提花色', hint: '成衣图转无缝印花' },
   { id: 'colorCard', label: '色卡', hint: '编号色卡批量正背面' },
@@ -101,6 +105,7 @@ function loadWorkMode(): WorkMode {
   if (localStorage.getItem(STORAGE_KEY_COLOR_CARD_MODE) === '1') return 'colorCard'
   if (localStorage.getItem(STORAGE_KEY_PATTERN_EXTRACT_MODE) === '1') return 'patternExtract'
   if (localStorage.getItem(STORAGE_KEY_MODEL_FLATTEN_MODE) === '1') return 'modelFlatten'
+  if (localStorage.getItem(STORAGE_KEY_COMBO_MODE) === '1') return 'combo'
   if (localStorage.getItem(STORAGE_KEY_WEAR_MODE) === '1') return 'wear'
   if (COLOR_CHANGE_MODE_ENABLED && localStorage.getItem(STORAGE_KEY_COLOR_CHANGE) === '1') return 'colorChange'
   return 'fabric'
@@ -170,6 +175,14 @@ interface Job {
   colorCardView?: ColorCardView
   /** 色卡模式：背面任务是否来自用户上传的背面参考图 */
   colorCardUsesBackReference?: boolean
+  /** 三图组合：模特 / 场景 / 衣服 */
+  comboModelFile?: File
+  comboSceneFile?: File
+  comboModelLabel?: string
+  comboSceneLabel?: string
+  comboClothingLabel?: string
+  comboModelPreviewUrl?: string
+  comboScenePreviewUrl?: string
 }
 
 function safeBaseName(name: string): string {
@@ -297,6 +310,7 @@ export default function App() {
   const modelFlattenMode = workMode === 'modelFlatten'
   const patternExtractMode = workMode === 'patternExtract'
   const colorCardMode = workMode === 'colorCard'
+  const comboMode = workMode === 'combo'
   const inFabricMode = workMode === 'fabric'
   const standardFrontMode = inFabricMode && fabricVariant === 'standardFront'
   const standardBackMode = inFabricMode && fabricVariant === 'standardBack'
@@ -314,6 +328,9 @@ export default function App() {
   const wearModeRef = useFabricSource()
   const modelFlattenRef = useFabricSource()
   const colorCardBack = useFabricSource()
+  const comboModels = useMultiImageSource()
+  const comboScenes = useMultiImageSource()
+  const comboClothes = useMultiImageSource()
 
   const [jobs, setJobs] = useState<Job[]>([])
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null)
@@ -342,6 +359,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_COLOR_CHANGE, workMode === 'colorChange' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_WEAR_MODE, workMode === 'wear' ? '1' : '0')
+    localStorage.setItem(STORAGE_KEY_COMBO_MODE, workMode === 'combo' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_MODEL_FLATTEN_MODE, workMode === 'modelFlatten' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_PATTERN_EXTRACT_MODE, workMode === 'patternExtract' ? '1' : '0')
     localStorage.setItem(STORAGE_KEY_COLOR_CARD_MODE, workMode === 'colorCard' ? '1' : '0')
@@ -410,6 +428,41 @@ export default function App() {
     return jobsForFile
   }, [])
 
+  const rebuildComboJobs = useCallback(() => {
+    const models = comboModels.items
+    const scenes = comboScenes.items
+    const clothes = comboClothes.items
+    if (models.length === 0 || scenes.length === 0 || clothes.length === 0) {
+      setJobs([])
+      return
+    }
+    const newJobs: Job[] = []
+    for (const model of models) {
+      for (const scene of scenes) {
+        for (const cloth of clothes) {
+          const modelLabel = safeBaseName(model.file.name.replace(/\.[^.]+$/, ''))
+          const sceneLabel = safeBaseName(scene.file.name.replace(/\.[^.]+$/, ''))
+          const clothingLabel = safeBaseName(cloth.file.name.replace(/\.[^.]+$/, ''))
+          newJobs.push({
+            id: crypto.randomUUID(),
+            file: cloth.file,
+            previewObjectUrl: cloth.previewObjectUrl,
+            status: 'queued',
+            addedSeq: addedSeqRef.current++,
+            comboModelFile: model.file,
+            comboSceneFile: scene.file,
+            comboModelLabel: modelLabel,
+            comboSceneLabel: sceneLabel,
+            comboClothingLabel: clothingLabel,
+            comboModelPreviewUrl: model.previewObjectUrl,
+            comboScenePreviewUrl: scene.previewObjectUrl,
+          })
+        }
+      }
+    }
+    setJobs(newJobs)
+  }, [comboClothes.items, comboModels.items, comboScenes.items])
+
   const replaceColorCardJobs = useCallback(
     (frontFile: File, count: number, backFile: File | null = colorCardBackFileRef.current) => {
       colorCardSourceFileRef.current = frontFile
@@ -457,6 +510,11 @@ export default function App() {
     if (frontFile) replaceColorCardJobs(frontFile, colorCardCount, null)
   }, [colorCardCount, jobs, replaceColorCardJobs, colorCardBack])
 
+  useEffect(() => {
+    if (!comboMode || isRunning) return
+    rebuildComboJobs()
+  }, [comboMode, isRunning, rebuildComboJobs])
+
   const updateColorCardCount = useCallback(
     (value: number, syncInput = true) => {
       const nextCount = clampColorCardCount(value)
@@ -477,6 +535,7 @@ export default function App() {
         replaceColorCardJobs(arr[0], colorCardCount)
         return
       }
+      if (comboMode) return
       const newJobs: Job[] = arr.map((file) => ({
         id: crypto.randomUUID(),
         file,
@@ -495,7 +554,7 @@ export default function App() {
         })
       }
     },
-    [colorCardCount, colorCardMode, fabricCloseupMode, modelFlattenMode, patternExtractMode, replaceColorCardJobs, updateJob],
+    [colorCardCount, colorCardMode, comboMode, fabricCloseupMode, modelFlattenMode, patternExtractMode, replaceColorCardJobs, updateJob],
   )
 
   const handlePaste = useCallback(
@@ -508,6 +567,12 @@ export default function App() {
       e.preventDefault()
       if (target === 'colorCardBack') {
         setColorCardBackFromFile(files[0])
+      } else if (target === 'comboModel') {
+        comboModels.addFiles(files)
+      } else if (target === 'comboScene') {
+        comboScenes.addFiles(files)
+      } else if (target === 'comboClothing') {
+        comboClothes.addFiles(files)
       } else if (target === 'fabricTop') {
         fabricTop.setFromFile(files[0])
       } else if (target === 'fabricBottom') {
@@ -520,6 +585,9 @@ export default function App() {
     },
     [
       addTargetFiles,
+      comboClothes,
+      comboModels,
+      comboScenes,
       fabric,
       fabricBottom,
       fabricTop,
@@ -554,7 +622,13 @@ export default function App() {
 
   const clearJobs = useCallback(() => {
     colorCardSourceFileRef.current = null
+    if (comboMode) {
+      comboModels.clear()
+      comboScenes.clear()
+      comboClothes.clear()
+    }
     setJobs((prev) => {
+      if (comboMode) return []
       const revoked = new Set<string>()
       for (const j of prev) {
         if (j.previewObjectUrl && !revoked.has(j.previewObjectUrl)) {
@@ -564,7 +638,7 @@ export default function App() {
       }
       return []
     })
-  }, [])
+  }, [comboClothes, comboMode, comboModels, comboScenes])
 
   const stopRun = useCallback(() => {
     cancelRef.current = true
@@ -590,11 +664,11 @@ export default function App() {
       alert('请填写接口地址。')
       return
     }
-    if (!patternExtractMode && !modelFlattenMode && !colorChangeMode && !wearMode && !colorCardMode && separatesDualMode && (!fabricTop.source || !fabricBottom.source)) {
+    if (!patternExtractMode && !modelFlattenMode && !colorChangeMode && !wearMode && !colorCardMode && !comboMode && separatesDualMode && (!fabricTop.source || !fabricBottom.source)) {
       alert('请先上传「上衣参考图」和「下装参考图」')
       return
     }
-    if (!patternExtractMode && !modelFlattenMode && !colorChangeMode && !wearMode && !separatesDualMode && !fabric.source) {
+    if (!patternExtractMode && !modelFlattenMode && !colorChangeMode && !wearMode && !comboMode && !separatesDualMode && !fabric.source) {
       alert(colorCardMode ? '请先上传「编号色卡图」' : fabricCloseupMode ? '请先上传「新布料图」' : '请先上传「布料图」或「商品图」')
       return
     }
@@ -607,7 +681,21 @@ export default function App() {
       return
     }
     if (jobs.length === 0) {
-      alert(colorCardMode ? '请上传一张「正面模特参考图」' : wearMode ? '请至少上传一张「商品图」' : modelFlattenMode ? '请至少上传一张「模特图」' : patternExtractMode ? '请至少上传一张「花色来源图」' : fabricCloseupMode ? '请至少上传一张「局部布样模板」' : '请至少上传一张「要换的图」')
+      alert(
+        comboMode
+          ? '请在三类图片中各至少上传一张'
+          : colorCardMode
+            ? '请上传一张「正面模特参考图」'
+            : wearMode
+              ? '请至少上传一张「商品图」'
+              : modelFlattenMode
+                ? '请至少上传一张「模特图」'
+                : patternExtractMode
+                  ? '请至少上传一张「花色来源图」'
+                  : fabricCloseupMode
+                    ? '请至少上传一张「局部布样模板」'
+                    : '请至少上传一张「要换的图」',
+      )
       return
     }
 
@@ -632,6 +720,8 @@ export default function App() {
             ? PROMPT_PATTERN_EXTRACT
           : colorChangeMode
             ? buildColorChangePrompt(true, selectedColor)
+            : comboMode
+              ? PROMPT_COMBO_MODE_EDIT
             : wearMode
               ? PROMPT_WEAR_MODE_EDIT
               : separatesDualMode
@@ -683,6 +773,10 @@ export default function App() {
           const { width, height } = await getImageDimensions(modelFlattenRef.source.file)
           jobAspect = closestAspectLabel(width, height)
           jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
+        } else if (comboMode && job.comboSceneFile) {
+          const { width, height } = await getImageDimensions(job.comboSceneFile)
+          jobAspect = closestAspectLabel(width, height)
+          jobSize = sizeForAspect(jobAspect, use2kOutput ? DEFAULT_SIZE_2K : size, use2kOutput)
         } else if (fabricCloseupMode) {
           // followTargetAspect was always false; only fabricCloseupMode remains
           const { width, height } = await getImageDimensions(job.file)
@@ -726,6 +820,8 @@ export default function App() {
               ? [job.file]
               : patternExtractMode
                 ? [job.file]
+              : comboMode
+                ? [job.comboModelFile!, job.comboSceneFile!, job.file]
               : modelFlattenMode
                 ? [modelFlattenRef.source!.file, job.file]
                 : colorCardMode
@@ -786,6 +882,7 @@ export default function App() {
     colorChangeMode,
     colorCardCount,
     colorCardMode,
+    comboMode,
     encodeImage,
     fabric,
     fabricBottom,
@@ -825,6 +922,18 @@ export default function App() {
         if (av !== bv) return av - bv
         return a.addedSeq - b.addedSeq
       }
+      if (comboMode) {
+        const ma = a.comboModelLabel ?? ''
+        const mb = b.comboModelLabel ?? ''
+        if (ma !== mb) return ma.localeCompare(mb, 'zh-CN')
+        const sa = a.comboSceneLabel ?? ''
+        const sb = b.comboSceneLabel ?? ''
+        if (sa !== sb) return sa.localeCompare(sb, 'zh-CN')
+        const ca = a.comboClothingLabel ?? ''
+        const cb = b.comboClothingLabel ?? ''
+        if (ca !== cb) return ca.localeCompare(cb, 'zh-CN')
+        return a.addedSeq - b.addedSeq
+      }
       const ra = rank(a.status)
       const rb = rank(b.status)
       if (ra !== rb) return ra - rb
@@ -833,24 +942,54 @@ export default function App() {
       }
       return a.addedSeq - b.addedSeq
     })
-  }, [colorCardMode, jobs])
+  }, [colorCardMode, comboMode, jobs])
 
   const canStart = useMemo(() => {
     const tokenOk = apiToken.trim().length > 0
     const hasJobs = jobs.length > 0
     if (patternExtractMode || colorChangeMode) return hasJobs && tokenOk
+    if (comboMode) {
+      return (
+        comboModels.items.length > 0 &&
+        comboScenes.items.length > 0 &&
+        comboClothes.items.length > 0 &&
+        hasJobs &&
+        tokenOk
+      )
+    }
     if (modelFlattenMode) return modelFlattenRef.source !== null && hasJobs && tokenOk
     if (colorCardMode) return fabric.source !== null && hasJobs && tokenOk
     if (wearMode) return wearModeRef.source !== null && hasJobs && tokenOk
     if (separatesDualMode) return fabricTop.source !== null && fabricBottom.source !== null && hasJobs && tokenOk
     return fabric.source !== null && hasJobs && tokenOk
-  }, [apiToken, jobs.length, patternExtractMode, modelFlattenMode, colorChangeMode, colorCardMode, wearMode, separatesDualMode, fabric.source, wearModeRef.source, modelFlattenRef.source, fabricTop.source, fabricBottom.source])
+  }, [
+    apiToken,
+    comboClothes.items.length,
+    comboMode,
+    comboModels.items.length,
+    comboScenes.items.length,
+    jobs.length,
+    patternExtractMode,
+    modelFlattenMode,
+    colorChangeMode,
+    colorCardMode,
+    wearMode,
+    separatesDualMode,
+    fabric.source,
+    wearModeRef.source,
+    modelFlattenRef.source,
+    fabricTop.source,
+    fabricBottom.source,
+  ])
 
   const openImagePreview = (src: string, label: string) => {
     setImagePreview({ src, label })
   }
 
   const jobDisplayName = (job: Job) => {
+    if (job.comboModelLabel && job.comboSceneLabel && job.comboClothingLabel) {
+      return `${job.comboModelLabel} × ${job.comboSceneLabel} × ${job.comboClothingLabel}`
+    }
     if (job.colorCardNumber) {
       const viewLabel = job.colorCardView === 'back' ? '背面' : '正面'
       return `色卡 ${job.colorCardNumber} · ${viewLabel}`
@@ -859,6 +998,7 @@ export default function App() {
   }
 
   const jobResultLabel = (job: Job) => {
+    if (job.comboModelLabel) return '组合结果'
     if (job.colorCardNumber) {
       const viewLabel = job.colorCardView === 'back' ? '背面图' : '正面图'
       return `色卡 ${job.colorCardNumber} ${viewLabel}`
@@ -869,6 +1009,9 @@ export default function App() {
   }
 
   const jobDownloadStem = (job: Job) => {
+    if (job.comboModelLabel && job.comboSceneLabel && job.comboClothingLabel) {
+      return `${job.comboModelLabel}_${job.comboSceneLabel}_${job.comboClothingLabel}_组合`
+    }
     if (job.colorCardNumber) {
       const number = String(job.colorCardNumber).padStart(2, '0')
       const view = job.colorCardView === 'back' ? '背面' : '正面'
@@ -878,6 +1021,7 @@ export default function App() {
   }
 
   const jobReferenceLabel = (job: Job) => {
+    if (job.comboModelLabel) return '衣服图'
     if (patternExtractMode) return '来源图'
     if (modelFlattenMode) return '模特图'
     if (!job.colorCardNumber) return '目标图'
@@ -907,7 +1051,10 @@ export default function App() {
       zip.file(`${jobDownloadStem(job)}.png`, blob)
     }
     const out = await zip.generateAsync({ type: 'blob' })
-    saveAs(out, `${colorCardMode ? '色卡结果' : patternExtractMode ? '无缝印花结果' : modelFlattenMode ? '平铺商品结果' : '换布结果'}-${new Date().toISOString().slice(0, 10)}.zip`)
+    saveAs(
+      out,
+      `${colorCardMode ? '色卡结果' : comboMode ? '三图组合结果' : patternExtractMode ? '无缝印花结果' : modelFlattenMode ? '平铺商品结果' : '换布结果'}-${new Date().toISOString().slice(0, 10)}.zip`,
+    )
   }
 
   return (
@@ -1114,6 +1261,15 @@ export default function App() {
           </div>
         )}
 
+        {comboMode && (
+          <div className="mode-panel-note" style={{ marginTop: 12, padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+            <p style={{ margin: 0, fontSize: 13, color: '#166534', lineHeight: 1.5 }}>
+              <strong> 三图组合提示：</strong>
+              分别上传模特图、场景图、衣服图（每类可多张）。系统会自动展开全部组合，生成数量 = 模特数 × 场景数 × 衣服数。每次生成将衣服穿到对应模特身上，并放入对应场景。
+            </p>
+          </div>
+        )}
+
         {patternExtractMode && (
           <div className="mode-panel-note" style={{ marginTop: 12, padding: '10px 12px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
             <p style={{ margin: 0, fontSize: 13, color: '#334155', lineHeight: 1.5 }}>
@@ -1202,8 +1358,8 @@ export default function App() {
       </section>
 
       <main className="app-main">
-        <div className={`upload-steps-row${colorCardMode || separatesDualMode ? ' compact-upload-row' : ''}`}>
-          {!patternExtractMode && !modelFlattenMode && !colorChangeMode && !wearMode && !separatesDualMode && (
+        <div className={`upload-steps-row${colorCardMode || separatesDualMode || comboMode ? ' compact-upload-row' : ''}`}>
+          {!patternExtractMode && !modelFlattenMode && !colorChangeMode && !wearMode && !comboMode && !separatesDualMode && (
           <section
             className={`step-card step-card-upload paste-zone${pasteTarget === 'fabric' ? ' paste-zone-active' : ''}${fabric.source ? ' step-card-done' : ''}`}
             tabIndex={0}
@@ -1463,6 +1619,123 @@ export default function App() {
           </section>
           )}
 
+          {comboMode && (
+          <>
+            {([
+              {
+                step: 1,
+                target: 'comboModel' as const,
+                title: '上传「模特图」',
+                desc: '提供人物、姿势、体态参考；可多张上传，每张会与其他场景、衣服组合。',
+                items: comboModels.items,
+                addFiles: comboModels.addFiles,
+                removeItem: comboModels.removeItem,
+                clear: comboModels.clear,
+                selectLabel: '选择模特图',
+              },
+              {
+                step: 2,
+                target: 'comboScene' as const,
+                title: '上传「场景图」',
+                desc: '提供背景、环境、光线氛围参考；可多张上传。',
+                items: comboScenes.items,
+                addFiles: comboScenes.addFiles,
+                removeItem: comboScenes.removeItem,
+                clear: comboScenes.clear,
+                selectLabel: '选择场景图',
+              },
+              {
+                step: 3,
+                target: 'comboClothing' as const,
+                title: '上传「衣服图」',
+                desc: '提供要穿着的商品/服装参考，严格保留版型、颜色、花色；可多张上传。',
+                items: comboClothes.items,
+                addFiles: comboClothes.addFiles,
+                removeItem: comboClothes.removeItem,
+                clear: comboClothes.clear,
+                selectLabel: '选择衣服图',
+              },
+            ]).map((cfg) => (
+              <section
+                key={cfg.target}
+                className={`step-card step-card-upload paste-zone${pasteTarget === cfg.target ? ' paste-zone-active' : ''}${cfg.items.length > 0 ? ' step-card-done' : ''}`}
+                tabIndex={0}
+                onFocus={() => setPasteTarget(cfg.target)}
+                onMouseDown={() => setPasteTarget(cfg.target)}
+                onPaste={(e) => handlePaste(e, cfg.target)}
+              >
+                <div className="step-card-head">
+                  <span className="step-badge">第 {cfg.step} 步</span>
+                  <h2>{cfg.title}</h2>
+                </div>
+                <p className="step-desc">{cfg.desc}</p>
+
+                <div
+                  className="dropzone"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    if (e.dataTransfer.files?.length) cfg.addFiles(e.dataTransfer.files)
+                  }}
+                >
+                  <p className="dropzone-title">拖入图片，或点击选择</p>
+                  <p className="dropzone-sub">支持多选 · 已添加 {cfg.items.length} 张</p>
+                  <label className="btn btn-secondary dropzone-btn">
+                    {cfg.selectLabel}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      disabled={isRunning}
+                      onChange={(e) => {
+                        if (e.target.files?.length) cfg.addFiles(e.target.files)
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {cfg.items.length > 0 ? (
+                  <div className="multi-thumb-strip" aria-label="已上传图片">
+                    {cfg.items.map((item) => (
+                      <div key={item.id} className="multi-thumb">
+                        <button
+                          type="button"
+                          className="multi-thumb-image"
+                          title={item.file.name}
+                          onClick={() => openImagePreview(item.previewObjectUrl, item.file.name)}
+                        >
+                          <img src={item.previewObjectUrl} alt={item.file.name} />
+                        </button>
+                        <button
+                          type="button"
+                          className="multi-thumb-remove"
+                          disabled={isRunning}
+                          aria-label={`移除 ${item.file.name}`}
+                          onClick={() => cfg.removeItem(item.id)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {cfg.items.length > 0 ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost combo-clear-btn"
+                    disabled={isRunning}
+                    onClick={cfg.clear}
+                  >
+                    清空本类图片
+                  </button>
+                ) : null}
+              </section>
+            ))}
+          </>
+          )}
+
           {wearMode && (
           <section
             className={`step-card step-card-upload paste-zone${pasteTarget === 'fabric' ? ' paste-zone-active' : ''}${wearModeRef.source ? ' step-card-done' : ''}`}
@@ -1524,6 +1797,7 @@ export default function App() {
           </section>
           )}
 
+          {!comboMode && (
           <section
             className={`step-card step-card-upload paste-zone${pasteTarget === 'target' ? ' paste-zone-active' : ''}${jobs.length > 0 ? ' step-card-done' : ''}`}
             tabIndex={0}
@@ -1605,6 +1879,7 @@ export default function App() {
               </p>
             ) : null}
           </section>
+          )}
 
           {colorCardMode && (
           <section
@@ -1670,9 +1945,33 @@ export default function App() {
 
         <section className="step-card step-card-action">
             <div className="step-card-head">
-              <span className="step-badge step-badge-accent">{colorCardMode || separatesDualMode ? '第 4 步' : colorChangeMode || patternExtractMode ? '第 2 步' : modelFlattenMode || wearMode ? '第 3 步' : '第 3 步'}</span>
-              <h2>{colorCardMode ? '按色卡批量生成正面和背面' : modelFlattenMode ? '生成平铺商品图' : patternExtractMode ? '生成无缝印花图' : '生成同一套衣服的多张图'}</h2>
+              <span className="step-badge step-badge-accent">
+                {comboMode || colorCardMode || separatesDualMode
+                  ? '第 4 步'
+                  : colorChangeMode || patternExtractMode
+                    ? '第 2 步'
+                    : modelFlattenMode || wearMode
+                      ? '第 3 步'
+                      : '第 3 步'}
+              </span>
+              <h2>
+                {comboMode
+                  ? '按组合批量生成上架图'
+                  : colorCardMode
+                    ? '按色卡批量生成正面和背面'
+                    : modelFlattenMode
+                      ? '生成平铺商品图'
+                      : patternExtractMode
+                        ? '生成无缝印花图'
+                        : '生成同一套衣服的多张图'}
+              </h2>
             </div>
+
+            {comboMode && comboModels.items.length > 0 && comboScenes.items.length > 0 && comboClothes.items.length > 0 ? (
+              <p className="combo-task-summary">
+                已展开 {jobs.length} 个任务（{comboModels.items.length} 模特 × {comboScenes.items.length} 场景 × {comboClothes.items.length} 衣服）
+              </p>
+            ) : null}
 
             <div className="action-row">
               <button
@@ -1702,7 +2001,7 @@ export default function App() {
                 disabled={isRunning || jobs.length === 0}
                 onClick={clearJobs}
               >
-                {colorCardMode ? '清空全部色卡任务' : modelFlattenMode ? '清空全部模特图' : patternExtractMode ? '清空全部来源图' : '清空全部目标图'}
+                {colorCardMode ? '清空全部色卡任务' : comboMode ? '清空全部组合' : modelFlattenMode ? '清空全部模特图' : patternExtractMode ? '清空全部来源图' : '清空全部目标图'}
               </button>
             </div>
 
@@ -1710,6 +2009,9 @@ export default function App() {
               <p className="action-hint">
                 {!apiToken.trim()
                   ? '请先在顶部填写 API 密钥'
+                  : comboMode &&
+                      (comboModels.items.length === 0 || comboScenes.items.length === 0 || comboClothes.items.length === 0)
+                    ? '请在三类图片中各至少上传一张'
                   : colorCardMode && !fabric.source
                     ? '请先上传编号色卡图'
                     : separatesDualMode && (!fabricTop.source || !fabricBottom.source)
@@ -1721,7 +2023,9 @@ export default function App() {
                     : !patternExtractMode && !modelFlattenMode && !wearMode && !colorChangeMode && !separatesDualMode && !fabric.source
                       ? '请先完成第 1 步'
                       : jobs.length === 0
-                        ? colorCardMode
+                        ? comboMode
+                          ? '请在三类图片中各至少上传一张'
+                          : colorCardMode
                           ? '请上传正面模特参考图'
                           : wearMode
                           ? '请上传商品图'
@@ -1746,7 +2050,9 @@ export default function App() {
           {jobs.length > 0 ? (
             <section className="results-section">
               <h2 className="results-heading">生成结果</h2>
-              {colorCardMode ? (
+              {comboMode ? (
+                <p className="results-subheading">按模特、场景、衣服名称排序。</p>
+              ) : colorCardMode ? (
                 <p className="results-subheading">按色卡编号排序，每个色号正面图后紧跟背面图。</p>
               ) : null}
               <div className="job-grid">
@@ -1761,7 +2067,7 @@ export default function App() {
                       </span>
                       <span className={`status status-${job.status}`}>{STATUS_LABEL[job.status]}</span>
                     </div>
-                    {!patternExtractMode && !modelFlattenMode && !fabricCloseupMode && !colorCardMode && !standardFrontMode && !standardBackMode ? (
+                    {!patternExtractMode && !modelFlattenMode && !fabricCloseupMode && !colorCardMode && !comboMode && !standardFrontMode && !standardBackMode ? (
                       <label className="job-back-toggle">
                         <input
                           type="checkbox"
@@ -1783,7 +2089,37 @@ export default function App() {
                         {fabricCloseupMode ? '局部布样（自动锁构图）' : '局部/特写（严格锁构图）'}
                       </label>
                     ) : null}
-                    <div className="job-images">
+                    <div className={`job-images${comboMode && job.comboModelPreviewUrl ? ' job-images-combo' : ''}`}>
+                      {comboMode && job.comboModelPreviewUrl && job.comboScenePreviewUrl ? (
+                        <>
+                          <figure>
+                            <button
+                              type="button"
+                              className="job-image-btn"
+                              title="点击查看大图"
+                              onClick={() =>
+                                openImagePreview(job.comboModelPreviewUrl!, `模特 — ${job.comboModelLabel}`)
+                              }
+                            >
+                              <img src={job.comboModelPreviewUrl} alt="模特图" />
+                            </button>
+                            <figcaption>模特</figcaption>
+                          </figure>
+                          <figure>
+                            <button
+                              type="button"
+                              className="job-image-btn"
+                              title="点击查看大图"
+                              onClick={() =>
+                                openImagePreview(job.comboScenePreviewUrl!, `场景 — ${job.comboSceneLabel}`)
+                              }
+                            >
+                              <img src={job.comboScenePreviewUrl} alt="场景图" />
+                            </button>
+                            <figcaption>场景</figcaption>
+                          </figure>
+                        </>
+                      ) : null}
                       <figure>
                         <button
                           type="button"

@@ -600,6 +600,73 @@
   padding-top: 0;
 }
 
+.multi-thumb-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}
+
+.multi-thumb {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+}
+
+.multi-thumb-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--input-bg);
+  cursor: pointer;
+}
+
+.multi-thumb-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.multi-thumb-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.multi-thumb-remove:hover:not(:disabled) {
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
+.combo-clear-btn {
+  margin-top: 0.45rem;
+  align-self: flex-start;
+  font-size: 0.78rem;
+}
+
+.combo-task-summary {
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 @media (max-width: 900px) {
   .upload-steps-row {
     grid-template-columns: 1fr;
@@ -1003,6 +1070,20 @@
   max-height: 130px;
   object-fit: contain;
   pointer-events: none;
+}
+
+.job-images-combo {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.job-images-combo img {
+  max-height: 88px;
+}
+
+@media (max-width: 640px) {
+  .job-images-combo {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .preview-image-btn,

@@ -56,6 +56,7 @@ import { restoreProtectedLightNeutrals } from './lib/colorProtection'
 import { getImageFilesFromDataTransfer, readFileAsDataURL } from './lib/files'
 import { closestAspectLabel, getImageDimensions, sizeForAspect } from './lib/imageAspect'
 import { ensureOutputAspect } from './lib/outputAspect'
+import { rebuildComboJobsPreservingResults, type ComboJobStatus } from './lib/comboJobs'
 import {
   buildPerJobPromptSuffix,
   checkTargetImage,
@@ -63,7 +64,7 @@ import {
 } from './lib/targetImageCheck'
 import './App.css'
 
-type JobStatus = 'queued' | 'running' | 'done' | 'error'
+type JobStatus = ComboJobStatus
 type PasteTarget = 'fabric' | 'fabricTop' | 'fabricBottom' | 'target' | 'colorCardBack' | 'comboModel' | 'comboScene' | 'comboClothing'
 /** 主工作模式：换布（默认）、一键换色、上身展示、展平、提取花色、色卡、三图组合 */
 type WorkMode = 'fabric' | 'colorChange' | 'wear' | 'modelFlatten' | 'patternExtract' | 'colorCard' | 'combo'
@@ -178,6 +179,9 @@ interface Job {
   /** 三图组合：模特 / 场景 / 衣服 */
   comboModelFile?: File
   comboSceneFile?: File
+  comboModelId?: string
+  comboSceneId?: string
+  comboClothingId?: string
   comboModelLabel?: string
   comboSceneLabel?: string
   comboClothingLabel?: string
@@ -429,38 +433,16 @@ export default function App() {
   }, [])
 
   const rebuildComboJobs = useCallback(() => {
-    const models = comboModels.items
-    const scenes = comboScenes.items
-    const clothes = comboClothes.items
-    if (models.length === 0 || scenes.length === 0 || clothes.length === 0) {
-      setJobs([])
-      return
-    }
-    const newJobs: Job[] = []
-    for (const model of models) {
-      for (const scene of scenes) {
-        for (const cloth of clothes) {
-          const modelLabel = safeBaseName(model.file.name.replace(/\.[^.]+$/, ''))
-          const sceneLabel = safeBaseName(scene.file.name.replace(/\.[^.]+$/, ''))
-          const clothingLabel = safeBaseName(cloth.file.name.replace(/\.[^.]+$/, ''))
-          newJobs.push({
-            id: crypto.randomUUID(),
-            file: cloth.file,
-            previewObjectUrl: cloth.previewObjectUrl,
-            status: 'queued',
-            addedSeq: addedSeqRef.current++,
-            comboModelFile: model.file,
-            comboSceneFile: scene.file,
-            comboModelLabel: modelLabel,
-            comboSceneLabel: sceneLabel,
-            comboClothingLabel: clothingLabel,
-            comboModelPreviewUrl: model.previewObjectUrl,
-            comboScenePreviewUrl: scene.previewObjectUrl,
-          })
-        }
-      }
-    }
-    setJobs(newJobs)
+    setJobs((prev) =>
+      rebuildComboJobsPreservingResults({
+        previousJobs: prev,
+        models: comboModels.items,
+        scenes: comboScenes.items,
+        clothes: comboClothes.items,
+        nextId: () => crypto.randomUUID(),
+        nextSeq: () => addedSeqRef.current++,
+      }),
+    )
   }, [comboClothes.items, comboModels.items, comboScenes.items])
 
   const replaceColorCardJobs = useCallback(
@@ -613,12 +595,12 @@ export default function App() {
     setJobs((prev) => {
       const j = prev.find((x) => x.id === id)
       const next = prev.filter((x) => x.id !== id)
-      if (j?.previewObjectUrl && !next.some((x) => x.previewObjectUrl === j.previewObjectUrl)) {
+      if (!comboMode && j?.previewObjectUrl && !next.some((x) => x.previewObjectUrl === j.previewObjectUrl)) {
         URL.revokeObjectURL(j.previewObjectUrl)
       }
       return next
     })
-  }, [])
+  }, [comboMode])
 
   const clearJobs = useCallback(() => {
     colorCardSourceFileRef.current = null
